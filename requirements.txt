@@ -1,0 +1,25 @@
+# Core LangChain framework
+langchain
+langchain-community
+langchain-core
+
+# Ollama integration for LangChain
+langchain-ollama
+
+# Local vector database
+chromadb
+
+# Alternative local embeddings
+sentence-transformers
+
+# PDF loading
+pypdf
+
+# Environment variable management
+python-dotenv
+
+# Alternative document loader for complex PDFs
+unstructured[pdf]
+
+# Token counting
+tiktoken
