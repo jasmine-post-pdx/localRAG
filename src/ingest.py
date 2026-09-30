@@ -14,6 +14,7 @@ import os
 
 from dotenv import load_dotenv
 from langchain_community.document_loaders import PyPDFLoader  # Or UnstructuredPDFLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 load_dotenv() # Optional: Loads environment variables from.env file
 DATA_PATH = "data/documents/"
@@ -39,4 +40,41 @@ def load_documents():
     print(f"Loaded {len(documents)} page(s) from {pdf_path}")
     return documents
 
-documents = load_documents()
+def split_documents(documents):
+    """Splits documents into overlapping text chunks for embedding.
+
+    Uses RecursiveCharacterTextSplitter, which breaks text on paragraph, line,
+    and word boundaries in that order, keeping each chunk at or under 1000
+    characters. Consecutive chunks share up to 200 characters so context isn't
+    lost at chunk boundaries.
+
+    Args:
+        documents (list[Document]): Documents to split, typically the per-page
+            output of ``load_documents``.
+
+    Returns:
+        list[Document]: The chunks, each carrying a copy of its source
+        document's ``metadata`` (source path and page number).
+    """
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=1000,
+        chunk_overlap=200,
+        length_function=len,
+        is_separator_regex=False,
+    )
+    all_splits = text_splitter.split_documents(documents)
+    print(f"Split into {len(all_splits)} chunks")
+    return all_splits
+
+if __name__ == "__main__":
+    documents = load_documents()
+    chunks = split_documents(documents)
+
+
+
+# rag_local.py (continued)
+
+
+
+# loaded_docs = load_documents()
+# chunks = split_documents(loaded_docs) # Call this later
