@@ -3,10 +3,11 @@
 # Generation: combine retrieved context with the user's question into a prompt
 # and send it to the local LLM (via Ollama) to produce an answer.
 
-from langchain_ollama import ChatOllama
+from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
-from langchain_core.output_parsers import StrOutputParser
+from langchain_ollama import ChatOllama
+
 
 def create_rag_chain(vector_store, llm_model_name="qwen3:8b", context_window=8192):
     """Creates the RAG chain."""
