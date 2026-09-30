@@ -15,6 +15,7 @@ import os
 from dotenv import load_dotenv
 from langchain_community.document_loaders import PyPDFLoader  # Or UnstructuredPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_ollama import OllamaEmbeddings
 
 load_dotenv() # Optional: Loads environment variables from.env file
 DATA_PATH = "data/documents/"
@@ -65,6 +66,27 @@ def split_documents(documents):
     all_splits = text_splitter.split_documents(documents)
     print(f"Split into {len(all_splits)} chunks")
     return all_splits
+
+def get_embedding_function(model_name="nomic-embed-text"):
+    """Creates the embedding model used to vectorize document chunks.
+
+    Returns a LangChain wrapper around a model served by the local Ollama
+    server. Creating it doesn't contact Ollama; the server must be running and
+    the model pulled (e.g. ``ollama pull nomic-embed-text``) before any text is
+    actually embedded.
+
+    Args:
+        model_name (str): Name of the Ollama embedding model to use. Defaults
+            to ``"nomic-embed-text"``.
+
+    Returns:
+        OllamaEmbeddings: An embedding function exposing ``embed_documents``
+        and ``embed_query``, suitable for passing to a vector store.
+    """
+    embeddings = OllamaEmbeddings(model=model_name)
+    print(f"Initialized Ollama embeddings with model: {model_name}")
+    return embeddings
+
 
 if __name__ == "__main__":
     documents = load_documents()
