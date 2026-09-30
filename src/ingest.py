@@ -70,11 +70,3 @@ if __name__ == "__main__":
     documents = load_documents()
     chunks = split_documents(documents)
 
-
-
-# rag_local.py (continued)
-
-
-
-# loaded_docs = load_documents()
-# chunks = split_documents(loaded_docs) # Call this later
