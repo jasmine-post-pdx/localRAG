@@ -5,44 +5,57 @@ generates embeddings, and persists them to the local vector store in
 data/vectorstore/.
 
 Attributes:
-    DATA_PATH (str): Directory containing the source PDF documents, relative
-        to the current working directory.
-    PDF_FILENAME (str): Name of the PDF file inside DATA_PATH to load.
+    DATA_PATH (str): Directory containing the source documents, relative to
+        the current working directory. Subdirectories are searched too.
     CHROMA_PATH (str): Directory where the Chroma vector store is saved,
         relative to the current working directory.
+    LOADERS (dict[str, Callable[[str], BaseLoader]]): Maps a lowercase file
+        extension to a factory that builds a LangChain loader for a file path.
+        Files with other extensions are ignored.
 """
 
-import os
+from pathlib import Path
 
 from dotenv import load_dotenv
-from langchain_community.document_loaders import PyPDFLoader  # Or UnstructuredPDFLoader
+from langchain_community.document_loaders import PyPDFLoader, TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_ollama import OllamaEmbeddings
 from langchain_community.vectorstores import Chroma
 
 load_dotenv() # Optional: Loads environment variables from.env file
 DATA_PATH = "data/documents/"
-PDF_FILENAME = "document.pdf" # Replace with your PDF filename
 CHROMA_PATH = "data/vectorstore"
 
-def load_documents():
-    """Loads a PDF from the data directory as LangChain documents.
+LOADERS = {
+    ".pdf": PyPDFLoader,
+    ".txt": lambda path: TextLoader(path, autodetect_encoding=True),
+    ".md": lambda path: TextLoader(path, autodetect_encoding=True),
+}
 
-    Reads the file at DATA_PATH/PDF_FILENAME with PyPDFLoader, producing one
-    Document per page.
+def load_documents(data_path=DATA_PATH):
+    """Loads every supported file in the data directory as LangChain documents.
+
+    Searches ``data_path`` recursively and loads each file whose extension is
+    in LOADERS. PDFs produce one Document per page; text and Markdown files
+    produce one Document per file.
+
+    Args:
+        data_path (str): Directory to search. Defaults to ``DATA_PATH``.
 
     Returns:
-        list[Document]: One Document per PDF page, with the page text in
-        ``page_content`` and the source path and page number in ``metadata``.
-
-    Raises:
-        ValueError: If the PDF path does not point to an existing file.
+        list[Document]: The loaded documents, with the text in
+        ``page_content`` and the source path in ``metadata["source"]``. PDF
+        pages also have a zero-based ``metadata["page"]``.
     """
-    pdf_path = os.path.join(DATA_PATH, PDF_FILENAME)
-    loader = PyPDFLoader(pdf_path)
-    # loader = UnstructuredPDFLoader(pdf_path) # Alternative
-    documents = loader.load()
-    print(f"Loaded {len(documents)} page(s) from {pdf_path}")
+    documents = []
+    file_count = 0
+    for path in sorted(Path(data_path).rglob("*")):
+        make_loader = LOADERS.get(path.suffix.lower())
+        if make_loader is None or not path.is_file():
+            continue
+        documents.extend(make_loader(str(path)).load())
+        file_count += 1
+    print(f"Loaded {len(documents)} document(s) from {file_count} file(s) in {data_path}")
     return documents
 
 def split_documents(documents):
@@ -59,7 +72,7 @@ def split_documents(documents):
 
     Returns:
         list[Document]: The chunks, each carrying a copy of its source
-        document's ``metadata`` (source path and page number).
+        document's ``metadata`` (source path, plus page number for PDFs).
     """
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,
@@ -116,14 +129,43 @@ def get_vector_store(embedding_function, persist_directory=CHROMA_PATH):
     print(f"Vector store initialized/loaded from: {persist_directory}")
     return vectorstore
 
-def index_documents(chunks, embedding_function, persist_directory=CHROMA_PATH):
-    """Embeds document chunks and saves them in Chroma.
+def assign_chunk_ids(chunks):
+    """Gives each chunk a deterministic ID based on where it came from.
 
-    Sends each chunk's text to the embedding model and stores the resulting
-    vectors, along with the chunk text and metadata, in the Chroma store at
-    ``persist_directory``. The chunks are added to any store already saved
-    there rather than replacing it, and each gets a new random ID, so indexing
-    the same chunks twice stores duplicates.
+    The ID has the form ``"<source>:<page>:<chunk_index>"``, where
+    ``chunk_index`` counts chunks within the same source and page. Text files
+    have no page, so their page part is ``0``. Running the same files through
+    ``load_documents`` and ``split_documents`` again yields the same IDs, which
+    is what lets ``index_documents`` skip chunks it has already stored.
+
+    Args:
+        chunks (list[Document]): Chunks in the order produced by
+            ``split_documents``. Each chunk's ``metadata`` is modified in
+            place to add an ``"id"`` key.
+
+    Returns:
+        list[Document]: The same chunks, now with ``metadata["id"]`` set.
+    """
+    counts = {}
+    for chunk in chunks:
+        source = chunk.metadata.get("source")
+        page = chunk.metadata.get("page", 0)
+        index = counts.get((source, page), 0)
+        counts[(source, page)] = index + 1
+        chunk.metadata["id"] = f"{source}:{page}:{index}"
+    return chunks
+
+def index_documents(chunks, embedding_function, persist_directory=CHROMA_PATH):
+    """Embeds document chunks and saves the new ones in Chroma.
+
+    Assigns each chunk a deterministic ID with ``assign_chunk_ids``, then
+    embeds and stores only the chunks whose IDs aren't already in the store at
+    ``persist_directory``. Re-running ingestion on the same files therefore
+    adds nothing, and adding a new file only embeds that file's chunks.
+
+    Because existing IDs are skipped, editing a file that was already indexed
+    doesn't update its stored chunks. To pick up edits, delete
+    ``persist_directory`` and ingest again.
 
     Args:
         chunks (list[Document]): Chunks to index, typically the output of
@@ -135,15 +177,23 @@ def index_documents(chunks, embedding_function, persist_directory=CHROMA_PATH):
             Defaults to ``CHROMA_PATH``.
 
     Returns:
-        Chroma: The vector store containing the newly indexed chunks.
+        Chroma: The vector store, including any newly indexed chunks.
     """
-    print(f"Indexing {len(chunks)} chunks...")
+    vector_store = get_vector_store(embedding_function, persist_directory)
+    existing_ids = set(vector_store.get(include=[])["ids"])
 
-    vector_store = Chroma.from_documents(
-        documents=chunks,
-        embedding=embedding_function,
-        persist_directory=persist_directory,
+    assign_chunk_ids(chunks)
+    new_chunks = [c for c in chunks if c.metadata["id"] not in existing_ids]
+    print(
+        f"{len(existing_ids)} chunk(s) already stored; "
+        f"indexing {len(new_chunks)} new of {len(chunks)} total..."
     )
+
+    if new_chunks:
+        vector_store.add_documents(
+            new_chunks,
+            ids=[c.metadata["id"] for c in new_chunks],
+        )
 
     print(f"Indexing complete. Data saved to: {persist_directory}")
     return vector_store

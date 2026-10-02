@@ -89,13 +89,13 @@ ollama pull nomic-embed-text
 ollama pull qwen3:8b
 ```
 
-Place a PDF at:
+Place your source files (`.pdf`, `.txt`, or `.md`) anywhere under:
 
 ```text
-data/documents/document.pdf
+data/documents/
 ```
 
-With the Ollama server running, ingest the document and then run the sample
+With the Ollama server running, ingest the documents and then run the sample
 questions:
 
 ```bash
@@ -106,8 +106,11 @@ python -m src.app
 `src.app` currently asks two hard-coded questions. Change them in
 `src/app.py` to match the contents of your document.
 
-Re-running ingestion adds another copy of every chunk. To rebuild cleanly,
-remove the contents of `data/vectorstore/` before running `src.ingest` again.
+Each chunk is stored under a deterministic ID (`<source>:<page>:<chunk_index>`),
+so re-running ingestion only embeds chunks from files that are new since the
+last run. Chunks already in the store are not updated, so after editing or
+removing a file, delete the contents of `data/vectorstore/` and run `src.ingest`
+again to rebuild.
 Source documents and vector-store data are intentionally excluded from Git.
 
 Automated tests are not runnable yet: the files under `tests/` are placeholders
@@ -132,9 +135,9 @@ projects.
 
 - [ ] Explore the existing codebase to understand component interactions and
   assess how minor changes affect overall functionality.
-- [ ] Prevent duplicate ingestion with deterministic chunk IDs or a documented
+- [x] Prevent duplicate ingestion with deterministic chunk IDs or a documented
   rebuild/update workflow.
-- [ ] Support multiple source documents instead of one fixed PDF.
+- [x] Support multiple source documents instead of one fixed PDF.
 - [ ] Implement an interactive CLI rather than hard-coded sample questions.
 - [ ] Turn the placeholder tests into unit and integration tests and add a test
   runner.

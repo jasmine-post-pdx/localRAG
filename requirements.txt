@@ -15,6 +15,10 @@ sentence-transformers
 # PDF loading
 pypdf
 
+# Encoding detection for non-UTF-8 text files
+# (chardet 6+ returns fields langchain-community's TextLoader can't handle)
+chardet<6
+
 # Environment variable management
 python-dotenv
 
