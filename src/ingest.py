@@ -149,8 +149,8 @@ def index_documents(chunks, embedding_function, persist_directory=CHROMA_PATH):
     return vector_store
 
 
-if __name__ == "__main__":
-    documents = load_documents()
-    chunks = split_documents(documents)
-    embedding_function = get_embedding_function()
-    index_documents(chunks, embedding_function)
+# if __name__ == "__main__":
+#     documents = load_documents()
+#     chunks = split_documents(documents)
+#     embedding_function = get_embedding_function()
+#     index_documents(chunks, embedding_function)
