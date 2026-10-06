@@ -58,10 +58,10 @@ def main():
     # Use the exact same embedding model used during indexing.
     embedding_function = get_embedding_function()
 
-    # Reopen the existing Chroma database in data/vectorstore/.
+    # Reopen the existing Chroma database in VECTORSTORE_PATH.
     vector_store = get_vector_store(embedding_function)
 
-    # Build the retriever + prompt + Qwen chain from Step 7.
+    # Build the retriever + prompt + chat model chain from Step 7.
     rag_chain = create_rag_chain(vector_store)
 
     console.rule("Questions")

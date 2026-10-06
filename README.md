@@ -30,6 +30,9 @@ into a more conventional application structure:
   develops.
 - `src/generate.py` builds the retrieval and generation chain.
 - `src/app.py` is the application entry point.
+- `src/config.py` reads every tunable setting (models, paths, chunking,
+  retrieval) from environment files so the other modules hold no hard-coded
+  values.
 - `tests/` mirrors those responsibilities and will hold the corresponding
   automated tests.
 
@@ -82,7 +85,32 @@ python -m pip install -r requirements.txt
 For the exact dependency versions captured during development, install
 `requirements.lock` instead of `requirements.txt`.
 
-Pull the two local models:
+### Configuration
+
+Settings are read from environment variables, taken from the first of these
+that defines each one:
+
+1. Variables already set in your shell, for example
+   `LLM_MODEL=qwen3:4b python -m src.app`.
+2. `.env`: your personal overrides. It's ignored by Git.
+3. `.env.default`: the committed defaults, with a comment explaining each
+   setting.
+
+The app runs with no extra setup, using the defaults. To change something,
+copy the examples file and uncomment the lines you need:
+
+```bash
+cp .env.example .env
+```
+
+`.env.example` has recipes for common changes, such as using a smaller chat
+model, pointing at a remote Ollama server, or keeping separate document sets.
+Changing `EMBEDDING_MODEL`, `CHUNK_SIZE`, or `CHUNK_OVERLAP` requires
+rebuilding the vector store (or switching to a new `VECTORSTORE_PATH`).
+
+### Models
+
+Pull the two local models (or whichever ones you configured):
 
 ```bash
 ollama pull nomic-embed-text
@@ -143,7 +171,7 @@ projects.
   runner.
 - [ ] Add a small evaluation set with expected source passages and measure
   retrieval recall before tuning chunk size, overlap, or `k`.
-- [ ] Move paths, models, chunk settings, and retrieval settings into real
+- [x] Move paths, models, chunk settings, and retrieval settings into real
   configuration.
 - [ ] Format retrieved context explicitly and return source/page citations.
 - [ ] Add clear errors for missing documents, empty indexes, unavailable
