@@ -123,9 +123,9 @@ def check_ollama(embedding_function):
     try:
         embedding_function.embed_query("ping")
     except ConnectionError:
+        #print("\n\n\n")
         raise SystemExit(
-            "Can't reach Ollama. Start it with `ollama serve` (or open the "
-            "Ollama app) and run ingestion again."
+            "\n\n\n\nCan't reach Ollama.\nStart it with `ollama serve` (or open the Ollama app) and run ingestion again.\n\n"
         ) from None
     except ResponseError as e:
         raise SystemExit(
