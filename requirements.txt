@@ -27,3 +27,6 @@ unstructured[pdf]
 
 # Token counting
 tiktoken
+
+# Styled terminal output (section rules, colored status lines, error panels)
+rich

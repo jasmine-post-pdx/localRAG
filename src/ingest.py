@@ -22,6 +22,10 @@ from langchain_community.vectorstores import Chroma
 from langchain_ollama import OllamaEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from ollama import ResponseError
+from rich.panel import Panel
+from rich.text import Text
+
+from src.console import console
 
 load_dotenv() # Optional: Loads environment variables from.env file
 DATA_PATH = "data/documents/" # "/Users/jasmine-arabella/tmp/data_tmp"
@@ -32,6 +36,21 @@ LOADERS = {
     ".txt": lambda path: TextLoader(path, autodetect_encoding=True),
     ".md": lambda path: TextLoader(path, autodetect_encoding=True),
 }
+
+def find_document_files(data_path=DATA_PATH):
+    """Lists every supported file in the data directory.
+
+    Args:
+        data_path (str): Directory to search recursively. Defaults to
+            ``DATA_PATH``.
+
+    Returns:
+        list[Path]: Files whose extension is in LOADERS, sorted by path.
+    """
+    return [
+        path for path in sorted(Path(data_path).rglob("*"))
+        if path.suffix.lower() in LOADERS and path.is_file()
+    ]
 
 def load_documents(data_path=DATA_PATH):
     """Loads every supported file in the data directory as LangChain documents.
@@ -49,14 +68,13 @@ def load_documents(data_path=DATA_PATH):
         pages also have a zero-based ``metadata["page"]``.
     """
     documents = []
-    file_count = 0
-    for path in sorted(Path(data_path).rglob("*")):
-        make_loader = LOADERS.get(path.suffix.lower())
-        if make_loader is None or not path.is_file():
-            continue
-        documents.extend(make_loader(str(path)).load())
-        file_count += 1
-    print(f"Loaded {len(documents)} document(s) from {file_count} file(s) in {data_path}")
+    files = find_document_files(data_path)
+    for path in files:
+        documents.extend(LOADERS[path.suffix.lower()](str(path)).load())
+    console.print(
+        f"Loaded {len(documents)} document(s) from {len(files)} file(s) in {data_path}",
+        style="info",
+    )
     return documents
 
 def split_documents(documents):
@@ -82,7 +100,7 @@ def split_documents(documents):
         is_separator_regex=False,
     )
     all_splits = text_splitter.split_documents(documents)
-    print(f"Split into {len(all_splits)} chunks")
+    console.print(f"Split into {len(all_splits)} chunks", style="info")
     return all_splits
 
 def get_embedding_function(model_name="nomic-embed-text"):
@@ -102,7 +120,7 @@ def get_embedding_function(model_name="nomic-embed-text"):
         and ``embed_query``, suitable for passing to a vector store.
     """
     embeddings = OllamaEmbeddings(model=model_name)
-    print(f"Initialized Ollama embeddings with model: {model_name}")
+    console.print(f"Initialized Ollama embeddings with model: {model_name}", style="info")
     return embeddings
 
 def check_ollama(embedding_function):
@@ -123,15 +141,19 @@ def check_ollama(embedding_function):
     try:
         embedding_function.embed_query("ping")
     except ConnectionError:
-        #print("\n\n\n")
-        raise SystemExit(
-            "\n\n\n\nCan't reach Ollama.\nStart it with `ollama serve` (or open the Ollama app) and run ingestion again.\n\n"
-        ) from None
+        console.print(Panel(
+            "Can't reach Ollama.\n"
+            "Start it with `ollama serve` (or open the Ollama app) and run ingestion again.",
+            title="Error", border_style="red",
+        ))
+        raise SystemExit(1) from None
     except ResponseError as e:
-        raise SystemExit(
-            f"Ollama can't use model {model!r}: {e.error}. "
-            f"Try `ollama pull {model}`."
-        ) from None
+        console.print(Panel(
+            f"Ollama can't use model {model!r}: {e.error}.\n"
+            f"Try `ollama pull {model}`.",
+            title="Error", border_style="red",
+        ))
+        raise SystemExit(1) from None
 
 def get_vector_store(embedding_function, persist_directory=CHROMA_PATH):
     """Opens the persistent Chroma vector store.
@@ -155,7 +177,7 @@ def get_vector_store(embedding_function, persist_directory=CHROMA_PATH):
         persist_directory=persist_directory,
         embedding_function=embedding_function,
     )
-    print(f"Vector store initialized/loaded from: {persist_directory}")
+    console.print(f"Vector store initialized/loaded from: {persist_directory}", style="info")
     return vectorstore
 
 def assign_chunk_ids(chunks):
@@ -213,9 +235,10 @@ def index_documents(chunks, embedding_function, persist_directory=CHROMA_PATH):
 
     assign_chunk_ids(chunks)
     new_chunks = [c for c in chunks if c.metadata["id"] not in existing_ids]
-    print(
+    console.print(
         f"{len(existing_ids)} chunk(s) already stored; "
-        f"indexing {len(new_chunks)} new of {len(chunks)} total..."
+        f"indexing {len(new_chunks)} new of {len(chunks)} total...",
+        style="info",
     )
 
     if new_chunks:
@@ -231,13 +254,47 @@ def index_documents(chunks, embedding_function, persist_directory=CHROMA_PATH):
                         raise
                     time.sleep(2)
 
-    print(f"Indexing complete. Data saved to: {persist_directory}")
+    console.print(f"Indexing complete. Data saved to: {persist_directory}", style="success")
     return vector_store
+
+def offer_to_delete_documents(data_path=DATA_PATH):
+    """Asks whether to delete the ingested files and deletes them if confirmed.
+
+    Only files with a supported extension are deleted; anything ingestion
+    skipped stays in place. Any answer other than yes, including just pressing
+    Enter, keeps the files.
+
+    Args:
+        data_path (str): Directory whose supported files may be deleted.
+            Defaults to ``DATA_PATH``.
+    """
+    files = find_document_files(data_path)
+    if not files:
+        return
+    console.rule("Cleanup")
+    try:
+        answer = console.input(Text(
+            "All of the files in the documents folder have been added to the AI system.\n"
+            "Do you want those files deleted from the documents folder? [y/N] ",
+            style="question",
+        ))
+    except EOFError:
+        answer = ""
+    if answer.strip().lower() not in ("y", "yes"):
+        return
+    for path in files:
+        path.unlink()
+    console.print("All files in the documents folder have been deleted", style="success")
 
 
 if __name__ == "__main__":
+    console.rule("Setup")
     embedding_function = get_embedding_function()
     check_ollama(embedding_function)
+    console.rule("Loading documents")
     documents = load_documents()
     chunks = split_documents(documents)
+    console.rule("Indexing")
     index_documents(chunks, embedding_function)
+    offer_to_delete_documents()
+    console.rule("Done")

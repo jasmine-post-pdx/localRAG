@@ -9,6 +9,8 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 
+from src.console import console
+
 
 def create_rag_chain(
     vector_store,
@@ -46,9 +48,10 @@ def create_rag_chain(
         temperature=0,
         num_ctx=context_window,
     )
-    print(
+    console.print(
         f"Initialized ChatOllama with model: {llm_model_name}, "
-        f"context window: {context_window}"
+        f"context window: {context_window}",
+        style="info",
     )
 
     # Create the retriever.
@@ -56,7 +59,7 @@ def create_rag_chain(
         search_type="similarity",
         search_kwargs={"k": 3},
     )
-    print("Retriever initialized.")
+    console.print("Retriever initialized.", style="info")
 
     # Define the prompt template.
     template = """Answer the question based ONLY on the following context:
@@ -66,7 +69,7 @@ def create_rag_chain(
 Question: {question}
 """
     prompt = ChatPromptTemplate.from_template(template)
-    print("Prompt template created.")
+    console.print("Prompt template created.", style="info")
 
     # Define the RAG chain using LCEL.
     rag_chain = (
@@ -75,6 +78,6 @@ Question: {question}
         | llm
         | StrOutputParser()
     )
-    print("RAG chain created.")
+    console.print("RAG chain created.", style="success")
 
     return rag_chain
