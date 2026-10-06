@@ -28,11 +28,13 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+ENV_PATH = PROJECT_ROOT / ".env"
+DEFAULT_ENV_PATH = PROJECT_ROOT / ".env.default"
 
 # load_dotenv never replaces a variable that's already set, so loading .env
 # first lets it override .env.default, and the shell overrides both.
-load_dotenv(PROJECT_ROOT / ".env")
-load_dotenv(PROJECT_ROOT / ".env.default")
+load_dotenv(ENV_PATH)
+load_dotenv(DEFAULT_ENV_PATH)
 
 
 def _get_str(name):

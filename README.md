@@ -33,6 +33,8 @@ into a more conventional application structure:
 - `src/config.py` reads every tunable setting (models, paths, chunking,
   retrieval) from environment files so the other modules hold no hard-coded
   values.
+- `src/util.py` holds maintenance tasks, currently an interactive picker for
+  the embedding and chat models.
 - `tests/` mirrors those responsibilities and will hold the corresponding
   automated tests.
 
@@ -105,6 +107,15 @@ cp .env.example .env
 
 `.env.example` has recipes for common changes, such as using a smaller chat
 model, pointing at a remote Ollama server, or keeping separate document sets.
+
+To switch models without editing files, run the model picker. It shows the
+current embedding and chat models next to the models installed in Ollama, and
+saves any change to `.env`. Press Enter at a prompt to keep the current model.
+
+```bash
+python -m src.util
+```
+
 Changing `EMBEDDING_MODEL`, `CHUNK_SIZE`, or `CHUNK_OVERLAP` requires
 rebuilding the vector store (or switching to a new `VECTORSTORE_PATH`).
 
