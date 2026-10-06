@@ -13,7 +13,7 @@ Attributes:
         extension to a factory that builds a LangChain loader for a file path.
         Files with other extensions are ignored.
 """
-
+import time
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -24,7 +24,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from ollama import ResponseError
 
 load_dotenv() # Optional: Loads environment variables from.env file
-DATA_PATH = "data/documents/"
+DATA_PATH = "data/documents/" # "/Users/jasmine-arabella/tmp/data_tmp"
 CHROMA_PATH = "data/vectorstore"
 
 LOADERS = {
@@ -219,10 +219,17 @@ def index_documents(chunks, embedding_function, persist_directory=CHROMA_PATH):
     )
 
     if new_chunks:
-        vector_store.add_documents(
-            new_chunks,
-            ids=[c.metadata["id"] for c in new_chunks],
-        )
+        BATCH_SIZE = 32
+        for start in range(0, len(new_chunks), BATCH_SIZE):
+            batch = new_chunks[start:start + BATCH_SIZE]
+            for attempt in range(3):
+                try:
+                    vector_store.add_documents(batch, ids=[c.metadata["id"] for c in batch])
+                    break
+                except ResponseError:
+                    if attempt == 2:
+                        raise
+                    time.sleep(2)
 
     print(f"Indexing complete. Data saved to: {persist_directory}")
     return vector_store
