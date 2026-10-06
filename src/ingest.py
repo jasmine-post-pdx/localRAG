@@ -18,9 +18,10 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from langchain_community.document_loaders import PyPDFLoader, TextLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_ollama import OllamaEmbeddings
 from langchain_community.vectorstores import Chroma
+from langchain_ollama import OllamaEmbeddings
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from ollama import ResponseError
 
 load_dotenv() # Optional: Loads environment variables from.env file
 DATA_PATH = "data/documents/"
@@ -103,6 +104,34 @@ def get_embedding_function(model_name="nomic-embed-text"):
     embeddings = OllamaEmbeddings(model=model_name)
     print(f"Initialized Ollama embeddings with model: {model_name}")
     return embeddings
+
+def check_ollama(embedding_function):
+    """Verifies that Ollama is reachable and can run the embedding model.
+
+    Embeds a short test string so problems surface before any documents are
+    loaded or indexed, rather than partway through ingestion.
+
+    Args:
+        embedding_function (OllamaEmbeddings): The embedding function to test,
+            typically the output of ``get_embedding_function``.
+
+    Raises:
+        SystemExit: If the Ollama server can't be reached or the model isn't
+            available.
+    """
+    model = embedding_function.model
+    try:
+        embedding_function.embed_query("ping")
+    except ConnectionError:
+        raise SystemExit(
+            "Can't reach Ollama. Start it with `ollama serve` (or open the "
+            "Ollama app) and run ingestion again."
+        ) from None
+    except ResponseError as e:
+        raise SystemExit(
+            f"Ollama can't use model {model!r}: {e.error}. "
+            f"Try `ollama pull {model}`."
+        ) from None
 
 def get_vector_store(embedding_function, persist_directory=CHROMA_PATH):
     """Opens the persistent Chroma vector store.
@@ -199,8 +228,9 @@ def index_documents(chunks, embedding_function, persist_directory=CHROMA_PATH):
     return vector_store
 
 
-# if __name__ == "__main__":
-#     documents = load_documents()
-#     chunks = split_documents(documents)
-#     embedding_function = get_embedding_function()
-#     index_documents(chunks, embedding_function)
+if __name__ == "__main__":
+    embedding_function = get_embedding_function()
+    check_ollama(embedding_function)
+    documents = load_documents()
+    chunks = split_documents(documents)
+    index_documents(chunks, embedding_function)
