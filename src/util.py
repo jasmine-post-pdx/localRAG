@@ -31,8 +31,8 @@ def _setting_key(name):
     return f"{table}.{key}" if table else key
 
 
-def save_store_setting(name, value):
-    """Writes a per-store setting to the active store's ``store.toml``.
+def save_store_setting(name, value, path=config.STORE_CONFIG_PATH):
+    """Writes a per-store setting to a store's ``store.toml``.
 
     Comments and layout in the file are kept. The setting's table (e.g.
     ``[query]``) is added at the end of the file if it doesn't exist yet.
@@ -40,9 +40,10 @@ def save_store_setting(name, value):
     Args:
         name (str): Environment name of the setting, e.g. ``"LLM_MODEL"``.
         value (str | int | float): The new value.
+        path (Path): The ``store.toml`` to update. Defaults to the active
+            store's, ``config.STORE_CONFIG_PATH``.
     """
     table, key, _ = config.STORE_SETTINGS[name]
-    path = config.STORE_CONFIG_PATH
     document = tomlkit.parse(path.read_text(encoding="utf-8"))
     target = document
     if table:

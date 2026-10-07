@@ -33,3 +33,6 @@ tiktoken
 
 # Styled terminal output (section rules, colored status lines, error panels)
 rich
+
+# Test runner
+pytest

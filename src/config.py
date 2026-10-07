@@ -144,23 +144,59 @@ def _convert(name, value, kind, source):
     )
 
 
-def _load_store_settings(store, config_path):
+def _store_dir(stores_dir, store):
+    # Relative to the working directory rather than absolute, because chunk
+    # IDs include each document's path and should stay short and portable.
+    return Path(os.path.relpath(stores_dir / store))
+
+
+def load_store_settings(store, stores_dir=STORES_DIR, shell_env=None):
     """Resolves every per-store setting for a store.
+
+    Each setting is taken from the first of ``shell_env``,
+    ``<stores_dir>/<store>/store.toml``, and ``<stores_dir>/defaults.toml``
+    that sets it. Relative ``DOCUMENTS_PATH`` and ``VECTORSTORE_PATH`` values
+    are resolved from the store's folder.
+
+    Args:
+        store (str): Name of the store, a folder under ``stores_dir``.
+        stores_dir (Path): Folder holding the store folders and
+            ``defaults.toml``. Defaults to ``STORES_DIR``.
+        shell_env (Mapping[str, str] | None): Variables that override the
+            files, keyed by environment name. Defaults to the shell
+            environment as it was before the ``.env`` files were loaded.
 
     Returns:
         tuple[dict[str, str | int | float], dict[str, str]]: The values, and
         where each came from (``SHELL``, or the path of the file that set it),
         both keyed by environment name.
+
+    Raises:
+        RuntimeError: If the store doesn't exist, a file is missing or
+            invalid, a value has the wrong type, or a setting isn't set
+            anywhere.
     """
+    if shell_env is None:
+        shell_env = _shell_env
+    config_path = stores_dir / store / "store.toml"
+    defaults_path = stores_dir / STORE_DEFAULTS_PATH.name
+    if not config_path.is_file():
+        available = sorted(path.parent.name for path in stores_dir.glob("*/store.toml"))
+        raise RuntimeError(
+            f"Store {store!r} doesn't exist: {config_path} not found. "
+            f"Available stores: {', '.join(available) or 'none'}. "
+            "Set RAG_STORE in .env or the shell to one of them."
+        )
+
     store_values = _read_store_file(config_path)
-    default_values = _read_store_file(STORE_DEFAULTS_PATH)
+    default_values = _read_store_file(defaults_path)
     settings = {}
     sources = {}
     for name, (table, key, kind) in STORE_SETTINGS.items():
         layers = (
-            (SHELL, _shell_env.get(name)),
+            (SHELL, shell_env.get(name)),
             (os.path.relpath(config_path), store_values.get((table, key))),
-            (os.path.relpath(STORE_DEFAULTS_PATH), default_values.get((table, key))),
+            (os.path.relpath(defaults_path), default_values.get((table, key))),
         )
         for source, value in layers:
             if value is None or (isinstance(value, str) and not value.strip()):
@@ -171,8 +207,12 @@ def _load_store_settings(store, config_path):
         else:
             raise RuntimeError(
                 f"Setting {_dotted(table, key)} isn't set for store {store!r}. "
-                f"Add it to {config_path} or {STORE_DEFAULTS_PATH}."
+                f"Add it to {config_path} or {defaults_path}."
             )
+
+    store_dir = _store_dir(stores_dir, store)
+    for name in ("DOCUMENTS_PATH", "VECTORSTORE_PATH"):
+        settings[name] = str(store_dir / Path(settings[name]).expanduser())
     return settings, sources
 
 
@@ -192,30 +232,19 @@ def _warn_about_store_settings_in_env():
 OLLAMA_HOST = _get_str("OLLAMA_HOST")
 
 STORE = _get_str("RAG_STORE")
+STORE_DIR = _store_dir(STORES_DIR, STORE)
 STORE_CONFIG_PATH = STORES_DIR / STORE / "store.toml"
-if not STORE_CONFIG_PATH.is_file():
-    _available = sorted(path.parent.name for path in STORES_DIR.glob("*/store.toml"))
-    raise RuntimeError(
-        f"Store {STORE!r} doesn't exist: {STORE_CONFIG_PATH} not found. "
-        f"Available stores: {', '.join(_available) or 'none'}. "
-        "Set RAG_STORE in .env or the shell to one of them."
-    )
 
-# Relative to the working directory rather than absolute, because chunk IDs
-# include each document's path and should stay short and portable.
-STORE_DIR = Path(os.path.relpath(STORES_DIR / STORE))
-
+_settings, SETTING_SOURCES = load_store_settings(STORE)
 _warn_about_store_settings_in_env()
-_settings, SETTING_SOURCES = _load_store_settings(STORE, STORE_CONFIG_PATH)
 
 EMBEDDING_MODEL = _settings["EMBEDDING_MODEL"]
 LLM_MODEL = _settings["LLM_MODEL"]
 LLM_TEMPERATURE = _settings["LLM_TEMPERATURE"]
 LLM_CONTEXT_WINDOW = _settings["LLM_CONTEXT_WINDOW"]
 
-# Relative store paths are resolved from the store's folder.
-DOCUMENTS_PATH = str(STORE_DIR / Path(_settings["DOCUMENTS_PATH"]).expanduser())
-VECTORSTORE_PATH = str(STORE_DIR / Path(_settings["VECTORSTORE_PATH"]).expanduser())
+DOCUMENTS_PATH = _settings["DOCUMENTS_PATH"]
+VECTORSTORE_PATH = _settings["VECTORSTORE_PATH"]
 
 CHUNK_SIZE = _settings["CHUNK_SIZE"]
 CHUNK_OVERLAP = _settings["CHUNK_OVERLAP"]

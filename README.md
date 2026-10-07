@@ -170,8 +170,17 @@ removing a file, delete the contents of `stores/default/vectorstore/` and run `s
 again to rebuild.
 Source documents and vector-store data are intentionally excluded from Git.
 
-Automated tests are not runnable yet: the files under `tests/` are placeholders
-and no test runner is declared as a dependency.
+Run the automated tests from the project root with:
+
+```bash
+pytest
+```
+
+They cover loading data store settings and saving model choices, using
+temporary stores so your real stores aren't touched. The ingestion,
+retrieval, and generation test files are still placeholders. Importing the
+app still loads the active store, so `RAG_STORE` must name a valid store
+even when running tests.
 
 ## Notes & findings
 
