@@ -31,8 +31,8 @@ into a more conventional application structure:
 - `src/generate.py` builds the retrieval and generation chain.
 - `src/app.py` is the application entry point.
 - `src/config.py` reads every tunable setting (models, paths, chunking,
-  retrieval) from environment files so the other modules hold no hard-coded
-  values.
+  retrieval) from the active data store's config and environment files so
+  the other modules hold no hard-coded values.
 - `src/util.py` holds maintenance tasks, currently an interactive picker for
   the embedding and chat models.
 - `tests/` mirrors those responsibilities and will hold the corresponding
@@ -89,35 +89,46 @@ For the exact dependency versions captured during development, install
 
 ### Configuration
 
-Settings are read from environment variables, taken from the first of these
-that defines each one:
+The app can keep several independent **data stores**, each with its own
+documents, vector store, and settings. Each store is a folder under
+`stores/`:
 
-1. Variables already set in your shell, for example
-   `LLM_MODEL=qwen3:4b python -m src.app`.
-2. `.env`: your personal overrides. It's ignored by Git.
-3. `.env.default`: the committed defaults, with a comment explaining each
-   setting.
-
-The app runs with no extra setup, using the defaults. To change something,
-copy the examples file and uncomment the lines you need:
-
-```bash
-cp .env.example .env
+```text
+stores/
+  defaults.toml     # default settings for every store, with explanations
+  default/
+    store.toml      # this store's settings
+    documents/
+    vectorstore/
 ```
 
-`.env.example` has recipes for common changes, such as using a smaller chat
-model, pointing at a remote Ollama server, or keeping separate document sets.
+Settings come in two kinds:
 
-To switch models without editing files, run the model picker. It shows the
-current embedding and chat models next to the models installed in Ollama, and
-saves any change to `.env`. Press Enter at a prompt to keep the current model.
+- **Per-store settings** (models, chunking, retrieval, paths) are taken from
+  the first of: a shell variable for one run, such as
+  `LLM_MODEL=qwen3:4b python -m src.app`; the store's `store.toml`; and
+  `stores/defaults.toml`.
+- **Machine-wide settings** (the Ollama address and which store to use) are
+  taken from the first of: your shell; `.env`, your personal overrides,
+  ignored by Git; and `.env.default`, the committed defaults.
+
+The app runs with no extra setup, using the `default` store. To add a store,
+create `stores/<name>/store.toml` with the settings that differ from
+`stores/defaults.toml`, then select it by setting `RAG_STORE` in `.env` (see
+`.env.example`) or for one run:
 
 ```bash
-python -m src.util
+RAG_STORE=research python -m src.ingest
+RAG_STORE=research python -m src.app
 ```
 
-Changing `EMBEDDING_MODEL`, `CHUNK_SIZE`, or `CHUNK_OVERLAP` requires
-rebuilding the vector store (or switching to a new `VECTORSTORE_PATH`).
+Changing a store's `embedding_model`, `chunk_size`, or `chunk_overlap` after
+ingesting requires deleting the contents of its vector store and ingesting
+again.
+
+The model picker (`python -m src.util`) still saves to `.env`, where model
+settings are now ignored; until it's updated, change models in the store's
+`store.toml`.
 
 ### Models
 
@@ -128,7 +139,8 @@ ollama pull nomic-embed-text
 ollama pull qwen3:8b
 ```
 
-Place your source files (`.pdf`, `.txt`, or `.md`) anywhere under:
+Place your source files (`.pdf`, `.txt`, or `.md`) anywhere under the active
+store's documents folder, which for the `default` store is:
 
 ```text
 stores/default/documents/

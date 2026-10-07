@@ -1,7 +1,7 @@
 # store.toml
 #
-# Settings for the "default" data store. The app doesn't read this file yet;
-# settings still come from .env.default, .env, and the shell.
+# Settings for the "default" data store. Anything left out is taken from
+# stores/defaults.toml, which explains each setting.
 #
 # Paths are relative to this store's folder unless absolute.
 
