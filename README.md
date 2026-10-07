@@ -131,7 +131,7 @@ ollama pull qwen3:8b
 Place your source files (`.pdf`, `.txt`, or `.md`) anywhere under:
 
 ```text
-data/documents/
+stores/default/documents/
 ```
 
 With the Ollama server running, ingest the documents and then run the sample
@@ -148,7 +148,7 @@ python -m src.app
 Each chunk is stored under a deterministic ID (`<source>:<page>:<chunk_index>`),
 so re-running ingestion only embeds chunks from files that are new since the
 last run. Chunks already in the store are not updated, so after editing or
-removing a file, delete the contents of `data/vectorstore/` and run `src.ingest`
+removing a file, delete the contents of `stores/default/vectorstore/` and run `src.ingest`
 again to rebuild.
 Source documents and vector-store data are intentionally excluded from Git.
 

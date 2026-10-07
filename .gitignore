@@ -221,10 +221,10 @@ __marimo__/
 # macOS
 .DS_Store
 
-# Local documents (keep folder, ignore contents)
-data/documents/*
-!data/documents/.gitkeep
+# Local documents for each store (keep folder, ignore contents)
+stores/*/documents/*
+!stores/*/documents/.gitkeep
 
-# Local vector store (keep folder, ignore contents)
-data/vectorstore/*
-!data/vectorstore/.gitkeep
+# Local vector store for each store (keep folder, ignore contents)
+stores/*/vectorstore/*
+!stores/*/vectorstore/.gitkeep
