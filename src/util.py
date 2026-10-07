@@ -1,11 +1,16 @@
 """Maintenance tasks for the local RAG system.
 
-Currently lets the user pick the embedding and chat models from the models
-installed in Ollama, saving any change to ``.env``.
+Currently lets the user pick the embedding and chat models for the active
+data store from the models installed in Ollama, saving any change to the
+store's ``store.toml``.
 
-Run from the project root with ``python -m src.util``.
+Run from the project root with ``python -m src.util``. Use
+``RAG_STORE=<name> python -m src.util`` to change another store's models.
 """
-from dotenv import dotenv_values, set_key
+import os
+from pathlib import Path
+
+import tomlkit
 from ollama import Client
 from rich.panel import Panel
 from rich.table import Table
@@ -20,22 +25,32 @@ def _with_tag(name):
     return name if ":" in name else f"{name}:latest"
 
 
-def setting_source(name, value):
-    """Reports where the current value of a setting came from.
+def _setting_key(name):
+    """Returns a setting's dotted key in ``store.toml``, e.g. ``"query.llm_model"``."""
+    table, key, _ = config.STORE_SETTINGS[name]
+    return f"{table}.{key}" if table else key
+
+
+def save_store_setting(name, value):
+    """Writes a per-store setting to the active store's ``store.toml``.
+
+    Comments and layout in the file are kept. The setting's table (e.g.
+    ``[query]``) is added at the end of the file if it doesn't exist yet.
 
     Args:
-        name (str): Environment variable name, e.g. ``"LLM_MODEL"``.
-        value (str): The value ``config`` loaded for it.
-
-    Returns:
-        str: ``".env"``, ``".env.default"``, or ``"shell"`` if neither file
-        holds that value, meaning an exported shell variable set it.
+        name (str): Environment name of the setting, e.g. ``"LLM_MODEL"``.
+        value (str | int | float): The new value.
     """
-    if dotenv_values(config.ENV_PATH).get(name) == value:
-        return ".env"
-    if dotenv_values(config.DEFAULT_ENV_PATH).get(name) == value:
-        return ".env.default"
-    return "shell"
+    table, key, _ = config.STORE_SETTINGS[name]
+    path = config.STORE_CONFIG_PATH
+    document = tomlkit.parse(path.read_text(encoding="utf-8"))
+    target = document
+    if table:
+        if table not in document:
+            document.add(table, tomlkit.table())
+        target = document[table]
+    target[key] = value
+    path.write_text(tomlkit.dumps(document), encoding="utf-8")
 
 
 def list_models(client, capability):
@@ -124,8 +139,8 @@ def update_model_setting(client, name, label, capability):
     """Shows the current model for a setting, lets the user change it, and saves it.
 
     Lists the installed models that have ``capability``, asks for a choice
-    with ``choose_model``, and writes a changed value to ``.env``, creating
-    the file if needed. ``.env.default`` is never modified.
+    with ``choose_model``, and writes a changed value to the active store's
+    ``store.toml``. ``stores/defaults.toml`` is never modified.
 
     Args:
         client (Client): Ollama client connected to ``config.OLLAMA_HOST``.
@@ -140,7 +155,7 @@ def update_model_setting(client, name, label, capability):
         ConnectionError: If the Ollama server can't be reached.
     """
     current = getattr(config, name)
-    source = setting_source(name, current)
+    source = config.SETTING_SOURCES[name]
     console.rule(label.capitalize())
     console.print(f"Current {label}: {current} (set in {source})", style="info")
 
@@ -166,31 +181,39 @@ def update_model_setting(client, name, label, capability):
         console.print(f"Keeping {current}.", style="info")
         return False
 
-    config.ENV_PATH.touch(exist_ok=True)
-    set_key(config.ENV_PATH, name, chosen, quote_mode="never")
-    console.print(f"Saved {name}={chosen} to {config.ENV_PATH.name}", style="success")
-    if source == "shell":
+    save_store_setting(name, chosen)
+    console.print(
+        f"Saved {_setting_key(name)} = {chosen} to {os.path.relpath(config.STORE_CONFIG_PATH)}",
+        style="success",
+    )
+    if source == config.SHELL:
         console.print(
             f"{name} is also exported in your shell, which takes precedence over "
-            f".env. Run `unset {name}` for the new value to take effect.",
+            f"store.toml. Run `unset {name}` for the new value to take effect.",
             style="warning",
         )
     return True
 
 
 def main():
-    """Lets the user change the embedding model, then the chat model."""
+    """Lets the user change the active store's embedding model, then its chat model."""
+    console.print(
+        f"Data store: {config.STORE} ({os.path.relpath(config.STORE_CONFIG_PATH)})",
+        style="info",
+    )
     client = Client(host=config.OLLAMA_HOST)
     try:
         embedding_changed = update_model_setting(
             client, "EMBEDDING_MODEL", "embedding model", "embedding",
         )
-        if embedding_changed:
+        has_vectors = (Path(config.VECTORSTORE_PATH) / "chroma.sqlite3").exists()
+        if embedding_changed and has_vectors:
             console.print(Panel(
-                "Vectors from different embedding models can't be compared, so the "
-                "existing vector store won't work with the new model.\n"
-                f"Delete the contents of {config.VECTORSTORE_PATH} (or set a new "
-                "VECTORSTORE_PATH in .env), then run `python -m src.ingest`.",
+                "Vectors from different embedding models can't be compared, so this "
+                "store's existing vector store won't work with the new model.\n"
+                f"Delete the contents of {config.VECTORSTORE_PATH}, then run "
+                "`python -m src.ingest`. To keep this store's data instead, change "
+                "the model back and create a new store for the new model.",
                 title="Rebuild the vector store", border_style="yellow",
             ))
         update_model_setting(client, "LLM_MODEL", "chat model", "completion")

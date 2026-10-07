@@ -21,6 +21,8 @@ Attributes:
     STORE (str): Name of the active data store, a folder under ``stores/``.
     STORE_DIR (Path): Folder of the active store.
     STORE_CONFIG_PATH (Path): The active store's ``store.toml``.
+    SETTING_SOURCES (dict[str, str]): Where each per-store setting's value
+        came from, keyed by environment name: ``SHELL`` or a file path.
     EMBEDDING_MODEL (str): Ollama model used to embed chunks and questions.
     LLM_MODEL (str): Ollama chat model used to generate answers.
     LLM_TEMPERATURE (float): Sampling temperature for the chat model.
@@ -65,6 +67,8 @@ STORE_SETTINGS = {
 STORE_INFO_KEYS = {("", "description")}
 
 _KIND_NAMES = {str: "text", int: "a whole number", float: "a number"}
+
+SHELL = "the shell"
 
 # Taken before the .env files are loaded, because only the shell may
 # override per-store settings.
@@ -144,28 +148,32 @@ def _load_store_settings(store, config_path):
     """Resolves every per-store setting for a store.
 
     Returns:
-        dict[str, str | int | float]: Values keyed by environment name.
+        tuple[dict[str, str | int | float], dict[str, str]]: The values, and
+        where each came from (``SHELL``, or the path of the file that set it),
+        both keyed by environment name.
     """
     store_values = _read_store_file(config_path)
     default_values = _read_store_file(STORE_DEFAULTS_PATH)
     settings = {}
+    sources = {}
     for name, (table, key, kind) in STORE_SETTINGS.items():
         layers = (
-            ("the shell", _shell_env.get(name)),
-            (config_path, store_values.get((table, key))),
-            (STORE_DEFAULTS_PATH, default_values.get((table, key))),
+            (SHELL, _shell_env.get(name)),
+            (os.path.relpath(config_path), store_values.get((table, key))),
+            (os.path.relpath(STORE_DEFAULTS_PATH), default_values.get((table, key))),
         )
         for source, value in layers:
             if value is None or (isinstance(value, str) and not value.strip()):
                 continue
             settings[name] = _convert(name, value, kind, source)
+            sources[name] = source
             break
         else:
             raise RuntimeError(
                 f"Setting {_dotted(table, key)} isn't set for store {store!r}. "
                 f"Add it to {config_path} or {STORE_DEFAULTS_PATH}."
             )
-    return settings
+    return settings, sources
 
 
 def _warn_about_store_settings_in_env():
@@ -198,7 +206,7 @@ if not STORE_CONFIG_PATH.is_file():
 STORE_DIR = Path(os.path.relpath(STORES_DIR / STORE))
 
 _warn_about_store_settings_in_env()
-_settings = _load_store_settings(STORE, STORE_CONFIG_PATH)
+_settings, SETTING_SOURCES = _load_store_settings(STORE, STORE_CONFIG_PATH)
 
 EMBEDDING_MODEL = _settings["EMBEDDING_MODEL"]
 LLM_MODEL = _settings["LLM_MODEL"]

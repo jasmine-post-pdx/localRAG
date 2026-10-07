@@ -34,7 +34,7 @@ into a more conventional application structure:
   retrieval) from the active data store's config and environment files so
   the other modules hold no hard-coded values.
 - `src/util.py` holds maintenance tasks, currently an interactive picker for
-  the embedding and chat models.
+  the active data store's embedding and chat models.
 - `tests/` mirrors those responsibilities and will hold the corresponding
   automated tests.
 
@@ -126,9 +126,15 @@ Changing a store's `embedding_model`, `chunk_size`, or `chunk_overlap` after
 ingesting requires deleting the contents of its vector store and ingesting
 again.
 
-The model picker (`python -m src.util`) still saves to `.env`, where model
-settings are now ignored; until it's updated, change models in the store's
-`store.toml`.
+To switch models without editing files, run the model picker. It shows the
+active store's embedding and chat models next to the models installed in
+Ollama, and saves any change to that store's `store.toml`. Press Enter at a
+prompt to keep the current model.
+
+```bash
+python -m src.util
+RAG_STORE=research python -m src.util   # another store
+```
 
 ### Models
 

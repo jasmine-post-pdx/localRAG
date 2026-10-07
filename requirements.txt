@@ -22,6 +22,9 @@ chardet<6
 # Environment variable management
 python-dotenv
 
+# Editing data store config files without losing their comments
+tomlkit
+
 # Alternative document loader for complex PDFs
 unstructured[pdf]
 
