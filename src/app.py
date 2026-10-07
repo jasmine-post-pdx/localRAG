@@ -5,10 +5,12 @@ questions about documents that have already been indexed.
 
 Run from the project root with ``python -m src.app``.
 """
+from chromadb.errors import InvalidArgumentError
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
 
+from src import config
 from src.console import console
 from src.generate import create_rag_chain
 from src.ingest import get_embedding_function, get_vector_store
@@ -32,7 +34,19 @@ def query_rag(chain, question):
     console.print("Querying RAG chain...", style="info")
     console.print(f"Question: {question}", style="info")
 
-    response = chain.invoke(question)
+    try:
+        response = chain.invoke(question)
+    except InvalidArgumentError as error:
+        if "dimension" not in str(error):
+            raise
+        console.print(
+            f"Embedding dimensions are wrong: {error}.\n"
+            f"The vector store in {config.VECTORSTORE_PATH} was built with a "
+            f"different embedding model than {config.EMBEDDING_MODEL}. "
+            "Switch EMBEDDING_MODEL back or re-run ingestion.",
+            style="warning",
+        )
+        raise SystemExit(1)
 
     console.print(Panel(Markdown(response), title="Response", border_style="green"))
 
