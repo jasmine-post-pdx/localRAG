@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from conftest import DEFAULT_PROMPT, DEFAULTS
 from src.config import (
     SHELL,
     IngestSettings,
@@ -13,38 +14,8 @@ from src.config import (
     list_stores,
     load_app_settings,
     load_store,
+    model_with_tag,
 )
-
-DEFAULTS = """\
-documents_path = "documents"
-vectorstore_path = "vectorstore"
-
-[ingest]
-embedding_model = "default-embed"
-chunk_size = 1000
-chunk_overlap = 200
-embedding_batch_size = 32
-
-[query]
-llm_model = "default-llm"
-temperature = 0
-context_window = 8192
-retrieval_k = 3
-"""
-
-
-@pytest.fixture
-def stores_dir(tmp_path, monkeypatch):
-    """A stores folder with a complete defaults.toml, also the working directory."""
-    (tmp_path / "defaults.toml").write_text(DEFAULTS)
-    monkeypatch.chdir(tmp_path)
-    return tmp_path
-
-
-def make_store(stores_dir, name, text=""):
-    folder = stores_dir / name
-    folder.mkdir()
-    (folder / "store.toml").write_text(text)
 
 
 def load(stores_dir, name="research", shell_env=None):
@@ -53,8 +24,8 @@ def load(stores_dir, name="research", shell_env=None):
 
 # --- load_store ---------------------------------------------------------------
 
-def test_loads_store_into_typed_config(stores_dir):
-    make_store(stores_dir, "research", 'description = "Papers"\n')
+def test_loads_store_into_typed_config(stores_dir, make_store):
+    make_store("research", 'description = "Papers"\n')
 
     store = load(stores_dir)
 
@@ -66,8 +37,8 @@ def test_loads_store_into_typed_config(stores_dir):
     assert store.query == QuerySettings("default-llm", 0.0, 8192, 3)
 
 
-def test_store_file_overrides_defaults(stores_dir):
-    make_store(stores_dir, "research", '[query]\nllm_model = "qwen3:4b"\nretrieval_k = 6\n')
+def test_store_file_overrides_defaults(stores_dir, make_store):
+    make_store("research", '[query]\nllm_model = "qwen3:4b"\nretrieval_k = 6\n')
 
     store = load(stores_dir)
 
@@ -76,8 +47,8 @@ def test_store_file_overrides_defaults(stores_dir):
     assert store.sources["LLM_MODEL"] == str(Path("research", "store.toml"))
 
 
-def test_settings_missing_from_store_file_come_from_defaults(stores_dir):
-    make_store(stores_dir, "research")
+def test_settings_missing_from_store_file_come_from_defaults(stores_dir, make_store):
+    make_store("research")
 
     store = load(stores_dir)
 
@@ -85,8 +56,8 @@ def test_settings_missing_from_store_file_come_from_defaults(stores_dir):
     assert store.sources["EMBEDDING_MODEL"] == "defaults.toml"
 
 
-def test_shell_overrides_store_file(stores_dir):
-    make_store(stores_dir, "research", "[query]\nretrieval_k = 6\n")
+def test_shell_overrides_store_file(stores_dir, make_store):
+    make_store("research", "[query]\nretrieval_k = 6\n")
 
     store = load(stores_dir, shell_env={"RETRIEVAL_K": "9"})
 
@@ -94,16 +65,16 @@ def test_shell_overrides_store_file(stores_dir):
     assert store.sources["RETRIEVAL_K"] == SHELL
 
 
-def test_empty_shell_value_counts_as_unset(stores_dir):
-    make_store(stores_dir, "research", '[query]\nllm_model = "qwen3:4b"\n')
+def test_empty_shell_value_counts_as_unset(stores_dir, make_store):
+    make_store("research", '[query]\nllm_model = "qwen3:4b"\n')
 
     store = load(stores_dir, shell_env={"LLM_MODEL": "  "})
 
     assert store.query.llm_model == "qwen3:4b"
 
 
-def test_whole_number_is_accepted_for_float_setting(stores_dir):
-    make_store(stores_dir, "research", "[query]\ntemperature = 1\n")
+def test_whole_number_is_accepted_for_float_setting(stores_dir, make_store):
+    make_store("research", "[query]\ntemperature = 1\n")
 
     store = load(stores_dir)
 
@@ -111,8 +82,8 @@ def test_whole_number_is_accepted_for_float_setting(stores_dir):
     assert isinstance(store.query.temperature, float)
 
 
-def test_relative_paths_resolve_from_store_folder(stores_dir):
-    make_store(stores_dir, "research", 'documents_path = "papers"\n')
+def test_relative_paths_resolve_from_store_folder(stores_dir, make_store):
+    make_store("research", 'documents_path = "papers"\n')
 
     store = load(stores_dir)
 
@@ -120,12 +91,9 @@ def test_relative_paths_resolve_from_store_folder(stores_dir):
     assert store.vectorstore_path == Path("research", "vectorstore")
 
 
-def test_absolute_and_home_paths_are_kept(stores_dir):
+def test_absolute_and_home_paths_are_kept(stores_dir, make_store):
     elsewhere = stores_dir / "elsewhere"
-    make_store(
-        stores_dir, "research",
-        f"documents_path = '{elsewhere}'\nvectorstore_path = '~/vectors'\n",
-    )
+    make_store("research", f"documents_path = '{elsewhere}'\nvectorstore_path = '~/vectors'\n")
 
     store = load(stores_dir)
 
@@ -133,8 +101,8 @@ def test_absolute_and_home_paths_are_kept(stores_dir):
     assert store.vectorstore_path == Path.home() / "vectors"
 
 
-def test_get_returns_setting_by_environment_name(stores_dir):
-    make_store(stores_dir, "research", '[query]\nllm_model = "qwen3:4b"\n')
+def test_get_returns_setting_by_environment_name(stores_dir, make_store):
+    make_store("research", '[query]\nllm_model = "qwen3:4b"\n')
 
     store = load(stores_dir)
 
@@ -143,46 +111,46 @@ def test_get_returns_setting_by_environment_name(stores_dir):
     assert store.get("DOCUMENTS_PATH") == Path("research", "documents")
 
 
-def test_unknown_key_is_rejected(stores_dir):
-    make_store(stores_dir, "research", '[query]\nllm_modle = "qwen3:4b"\n')
+def test_unknown_key_is_rejected(stores_dir, make_store):
+    make_store("research", '[query]\nllm_modle = "qwen3:4b"\n')
 
     with pytest.raises(RuntimeError, match=r"Unknown setting\(s\).*query\.llm_modle"):
         load(stores_dir)
 
 
 @pytest.mark.parametrize("value", ['"big"', "true", "1.5"])
-def test_wrong_type_in_store_file_is_rejected(stores_dir, value):
-    make_store(stores_dir, "research", f"[ingest]\nchunk_size = {value}\n")
+def test_wrong_type_in_store_file_is_rejected(stores_dir, make_store, value):
+    make_store("research", f"[ingest]\nchunk_size = {value}\n")
 
     with pytest.raises(RuntimeError, match="CHUNK_SIZE .* must be a whole number"):
         load(stores_dir)
 
 
-def test_wrong_type_in_shell_is_rejected(stores_dir):
-    make_store(stores_dir, "research")
+def test_wrong_type_in_shell_is_rejected(stores_dir, make_store):
+    make_store("research")
 
     with pytest.raises(RuntimeError, match="CHUNK_SIZE from the shell must be a whole number"):
         load(stores_dir, shell_env={"CHUNK_SIZE": "abc"})
 
 
-def test_missing_store_lists_available_stores(stores_dir):
-    make_store(stores_dir, "research")
-    make_store(stores_dir, "notes")
+def test_missing_store_lists_available_stores(stores_dir, make_store):
+    make_store("research")
+    make_store("notes")
 
     with pytest.raises(RuntimeError, match="'nope' doesn't exist.*Available stores: notes, research"):
         load(stores_dir, name="nope")
 
 
-def test_invalid_toml_is_rejected(stores_dir):
-    make_store(stores_dir, "research", "llm_model = \n")
+def test_invalid_toml_is_rejected(stores_dir, make_store):
+    make_store("research", "llm_model = \n")
 
     with pytest.raises(RuntimeError, match="isn't valid TOML"):
         load(stores_dir)
 
 
-def test_setting_missing_everywhere_is_rejected(stores_dir):
+def test_setting_missing_everywhere_is_rejected(stores_dir, make_store):
     (stores_dir / "defaults.toml").write_text(DEFAULTS.replace('llm_model = "default-llm"\n', ""))
-    make_store(stores_dir, "research")
+    make_store("research")
 
     with pytest.raises(RuntimeError, match="query.llm_model isn't set for store 'research'"):
         load(stores_dir)
@@ -194,14 +162,72 @@ def test_committed_default_store_is_valid():
     assert store.name == "default"
 
 
-# --- list_stores --------------------------------------------------------------
+# --- Prompt templates -----------------------------------------------------------
 
-def test_list_stores_returns_folders_with_store_file(stores_dir):
-    make_store(stores_dir, "research")
-    make_store(stores_dir, "notes")
+def test_store_without_prompt_uses_shared_prompt(stores_dir, make_store):
+    make_store("research")
+
+    store = load(stores_dir)
+
+    assert store.prompt_template == DEFAULT_PROMPT
+    assert store.prompt_path == Path("prompt.txt")
+
+
+def test_store_prompt_overrides_shared_prompt(stores_dir, make_store):
+    folder = make_store("research")
+    (folder / "prompt.txt").write_text("Use {context} to answer {question} briefly.")
+
+    store = load(stores_dir)
+
+    assert store.prompt_template == "Use {context} to answer {question} briefly."
+    assert store.prompt_path == Path("research", "prompt.txt")
+
+
+def test_prompt_may_contain_escaped_braces(stores_dir, make_store):
+    folder = make_store("research")
+    (folder / "prompt.txt").write_text('Reply as {{"answer": ...}}. {context} {question}')
+
+    assert load(stores_dir).prompt_template.startswith('Reply as {{"answer"')
+
+
+@pytest.mark.parametrize("text, found", [
+    ("Answer {question}", r"\{question\}"),
+    ("{context} {question} {topic}", r"\{context\}, \{question\}, \{topic\}"),
+    ("{context} {question} {}", r"\{\}"),
+])
+def test_prompt_with_wrong_placeholders_is_rejected(stores_dir, make_store, text, found):
+    folder = make_store("research")
+    (folder / "prompt.txt").write_text(text)
+
+    with pytest.raises(RuntimeError, match=f"found .*{found}"):
+        load(stores_dir)
+
+
+def test_prompt_with_unbalanced_brace_is_rejected(stores_dir, make_store):
+    folder = make_store("research")
+    (folder / "prompt.txt").write_text("{context} {question} {")
+
+    with pytest.raises(RuntimeError, match="isn't a valid prompt template"):
+        load(stores_dir)
+
+
+def test_committed_shared_prompt_is_valid():
+    assert "{context}" in load_store("default", shell_env={}).prompt_template
+
+
+# --- list_stores and model_with_tag --------------------------------------------
+
+def test_list_stores_returns_folders_with_store_file(stores_dir, make_store):
+    make_store("research")
+    make_store("notes")
     (stores_dir / "not-a-store").mkdir()
 
     assert list_stores(stores_dir) == ["notes", "research"]
+
+
+def test_model_with_tag_adds_latest_only_when_untagged():
+    assert model_with_tag("nomic-embed-text") == "nomic-embed-text:latest"
+    assert model_with_tag("qwen3:8b") == "qwen3:8b"
 
 
 # --- load_app_settings --------------------------------------------------------

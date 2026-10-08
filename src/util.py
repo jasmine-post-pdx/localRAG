@@ -16,12 +16,9 @@ from rich.table import Table
 from rich.text import Text
 
 from src import config
+from src.config import model_with_tag
 from src.console import console
-
-
-def _with_tag(name):
-    """Returns a model name with Ollama's implicit ``:latest`` tag made explicit."""
-    return name if ":" in name else f"{name}:latest"
+from src.manifest import has_vectors
 
 
 def _setting_key(name):
@@ -85,7 +82,7 @@ def print_models(title, models, current):
     table.add_column("Family")
     table.add_column("Size on disk", justify="right")
     for number, model in enumerate(models, start=1):
-        is_current = _with_tag(model.model) == _with_tag(current)
+        is_current = model_with_tag(model.model) == model_with_tag(current)
         name = f"{model.model} (current)" if is_current else model.model
         table.add_row(
             Text(str(number)),
@@ -126,7 +123,7 @@ def choose_model(label, models, current):
         if answer.isdigit() and 1 <= int(answer) <= len(models):
             return models[int(answer) - 1].model
         for model in models:
-            if _with_tag(answer) == _with_tag(model.model):
+            if model_with_tag(answer) == model_with_tag(model.model):
                 return model.model
         console.print(
             f"{answer!r} isn't in the table. Enter a number from 1 to {len(models)}, "
@@ -170,7 +167,7 @@ def update_model_setting(client, store, name, label, capability):
         return False
 
     print_models(f"Installed {label}s", models, current)
-    if not any(_with_tag(m.model) == _with_tag(current) for m in models):
+    if not any(model_with_tag(m.model) == model_with_tag(current) for m in models):
         console.print(
             f"The current {label} isn't installed. Run `ollama pull {current}` "
             "or choose another one.",
@@ -178,7 +175,7 @@ def update_model_setting(client, store, name, label, capability):
         )
 
     chosen = choose_model(label, models, current)
-    if _with_tag(chosen) == _with_tag(current):
+    if model_with_tag(chosen) == model_with_tag(current):
         console.print(f"Keeping {current}.", style="info")
         return False
 
@@ -213,8 +210,7 @@ def main(argv=None):
         embedding_changed = update_model_setting(
             client, store, "EMBEDDING_MODEL", "embedding model", "embedding",
         )
-        has_vectors = (store.vectorstore_path / "chroma.sqlite3").exists()
-        if embedding_changed and has_vectors:
+        if embedding_changed and has_vectors(store):
             console.print(Panel(
                 "Vectors from different embedding models can't be compared, so this "
                 "store's existing vector store won't work with the new model.\n"

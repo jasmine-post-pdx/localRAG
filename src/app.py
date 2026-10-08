@@ -18,31 +18,68 @@ from src import config
 from src.console import console
 from src.generate import create_rag_chain
 from src.ingest import get_embedding_function, get_vector_store
+from src.manifest import find_mismatches, has_vectors, read_manifest
 
 DEFAULT_QUESTION = "What are the main topics of the documents?"
 USE_COMMAND = "/use"
+
+
+def check_store_ready(store):
+    """Checks that a store's vectors can be searched with its embedding model.
+
+    Warns if nothing has been ingested into the store yet.
+
+    Args:
+        store (StoreConfig): The store about to be queried.
+
+    Raises:
+        RuntimeError: If the store's manifest shows its vectors were built
+            with a different embedding model.
+    """
+    manifest = read_manifest(store)
+    if manifest is None:
+        if not has_vectors(store):
+            console.print(
+                f"Nothing has been ingested into {store.name} yet. Add files to "
+                f"{store.documents_path} and run `python -m src.ingest --store {store.name}`.",
+                style="warning",
+            )
+        return
+    mismatches = find_mismatches(store, manifest, settings=("embedding_model",))
+    if mismatches:
+        raise RuntimeError(
+            f"Can't search {store.name}: {mismatches[0]}.\n"
+            "Change the embedding model back, or delete the contents of "
+            f"{store.vectorstore_path} and ingest again."
+        )
 
 
 def build_rag_chain(store, app_settings):
     """Opens a data store's vector store and builds a RAG chain over it.
 
     Args:
-        store (StoreConfig): The store to answer questions from. Its
-            documents must already have been ingested.
+        store (StoreConfig): The store to answer questions from.
         app_settings (AppSettings): Machine-wide settings, for the Ollama
             address.
 
     Returns:
         Runnable: The RAG chain returned by ``create_rag_chain``.
+
+    Raises:
+        RuntimeError: If the store's vectors were built with a different
+            embedding model.
     """
     console.print(f"Data store: {store.name} ({store.config_path})", style="info")
+    check_store_ready(store)
 
     # Use the exact same embedding model used during indexing.
     embedding_function = get_embedding_function(
         store.ingest.embedding_model, app_settings.ollama_host,
     )
     vector_store = get_vector_store(embedding_function, store.vectorstore_path)
-    return create_rag_chain(vector_store, store.query, app_settings.ollama_host)
+    return create_rag_chain(
+        vector_store, store.query, store.prompt_template, app_settings.ollama_host,
+    )
 
 
 def query_rag(chain, question, store):
@@ -109,11 +146,12 @@ def switch_store(name, current, app_settings):
         return None
     try:
         store = config.load_store(name)
+        console.rule(f"Switching to {store.name}")
+        chain = build_rag_chain(store, app_settings)
     except RuntimeError as error:
-        console.print(str(error), style="warning")
+        console.print(f"{error}\nStill using {current.name}.", style="warning")
         return None
-    console.rule(f"Switching to {store.name}")
-    return store, build_rag_chain(store, app_settings)
+    return store, chain
 
 
 def ask(prompt):
@@ -140,7 +178,11 @@ def main(argv=None):
     store = config.load_store(args.store or app_settings.default_store)
 
     console.rule("Setup")
-    rag_chain = build_rag_chain(store, app_settings)
+    try:
+        rag_chain = build_rag_chain(store, app_settings)
+    except RuntimeError as error:
+        console.print(Panel(str(error), title="Error", border_style="red"))
+        raise SystemExit(1) from None
 
     console.rule("Questions")
     console.print(

@@ -1,0 +1,5 @@
+Answer the question based ONLY on the following context:
+
+{context}
+
+Question: {question}

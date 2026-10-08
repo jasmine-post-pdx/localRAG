@@ -12,13 +12,13 @@ from langchain_core.runnables import RunnablePassthrough
 from src.console import console
 
 
-def create_rag_chain(vector_store, query_settings, ollama_host):
+def create_rag_chain(vector_store, query_settings, prompt_template, ollama_host):
     """Creates a retrieval-augmented generation chain backed by Ollama.
 
     The chain retrieves the ``query_settings.retrieval_k`` most similar
-    documents from the vector store, inserts them into a prompt alongside the
-    user's question, sends the prompt to the Ollama chat model at
-    ``ollama_host``, and parses the response into a plain string.
+    documents from the vector store, inserts them into ``prompt_template``
+    alongside the user's question, sends the prompt to the Ollama chat model
+    at ``ollama_host``, and parses the response into a plain string.
 
     Args:
         vector_store: A LangChain vector store that supports
@@ -26,6 +26,9 @@ def create_rag_chain(vector_store, query_settings, ollama_host):
         query_settings (QuerySettings): The store's chat model, its context
             window and temperature, and the number of chunks to retrieve.
             The model must already be pulled (e.g. ``ollama pull qwen3:8b``).
+        prompt_template (str): The prompt, with ``{context}`` and
+            ``{question}`` placeholders, typically a store's
+            ``prompt_template``.
         ollama_host (str): Address of the Ollama server.
 
     Returns:
@@ -33,7 +36,9 @@ def create_rag_chain(vector_store, query_settings, ollama_host):
         ``invoke()`` and returns the generated answer as a string.
 
     Example:
-        >>> chain = create_rag_chain(vector_store, store.query, app_settings.ollama_host)
+        >>> chain = create_rag_chain(
+        ...     vector_store, store.query, store.prompt_template, app_settings.ollama_host,
+        ... )
         >>> chain.invoke("What is the refund policy?")
         'Refunds are available within 30 days...'
     """
@@ -60,14 +65,7 @@ def create_rag_chain(vector_store, query_settings, ollama_host):
     )
     console.print(f"Retriever initialized (k={k}).", style="info")
 
-    # Define the prompt template.
-    template = """Answer the question based ONLY on the following context:
-
-{context}
-
-Question: {question}
-"""
-    prompt = ChatPromptTemplate.from_template(template)
+    prompt = ChatPromptTemplate.from_template(prompt_template)
     console.print("Prompt template created.", style="info")
 
     # Define the RAG chain using LCEL.

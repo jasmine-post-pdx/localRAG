@@ -34,8 +34,11 @@ into a more conventional application structure:
   retrieval) into typed settings objects, from a data store's config and the
   environment files. The entry points pass those objects down, so the other
   modules hold no hard-coded values and can switch stores at runtime.
+- `src/manifest.py` records the settings each data store's vectors were
+  built with, so changed settings are caught before they cause errors.
+- `src/stores.py` lists, inspects, creates, and selects data stores.
 - `src/util.py` holds maintenance tasks, currently an interactive picker for
-  the active data store's embedding and chat models.
+  a data store's embedding and chat models.
 - `tests/` mirrors those responsibilities and will hold the corresponding
   automated tests.
 
@@ -97,10 +100,12 @@ documents, vector store, and settings. Each store is a folder under
 ```text
 stores/
   defaults.toml     # default settings for every store, with explanations
+  prompt.txt        # default prompt template for every store
   default/
     store.toml      # this store's settings
+    prompt.txt      # optional: this store's own prompt template
     documents/
-    vectorstore/
+    vectorstore/    # includes manifest.json, written by ingestion
 ```
 
 Settings come in two kinds:
@@ -113,11 +118,21 @@ Settings come in two kinds:
   taken from the first of: your shell; `.env`, your personal overrides,
   ignored by Git; and `.env.default`, the committed defaults.
 
-The app runs with no extra setup, using the `default` store. To add a store,
-create `stores/<name>/store.toml` with the settings that differ from
-`stores/defaults.toml`. Every command takes `--store <name>` to choose a
-store; without it, they use `RAG_STORE`, which you can set in `.env` (see
-`.env.example`):
+The app runs with no extra setup, using the `default` store. Manage stores
+with `src.stores`:
+
+```bash
+python -m src.stores                      # list stores, their models, and what's ingested
+python -m src.stores info research        # settings, where each is set, paths, status
+python -m src.stores create research --description "ML papers" \
+    --embedding-model mxbai-embed-large   # or --copy-from <store>
+python -m src.stores use research         # make it the default (saved in .env)
+```
+
+`create` writes every ingest and query setting into the new store's
+`store.toml`, so later changes to `stores/defaults.toml` can't silently
+change it. Every other command takes `--store <name>` to choose a store for
+one run; without it, they use the default store (`RAG_STORE`):
 
 ```bash
 python -m src.ingest --store research
@@ -127,9 +142,17 @@ python -m src.app --store research
 While asking questions in `src.app`, type `/use <name>` to switch to another
 store, or `/use` on its own to list them.
 
-Changing a store's `embedding_model`, `chunk_size`, or `chunk_overlap` after
-ingesting requires deleting the contents of its vector store and ingesting
-again.
+Each store answers with the prompt in `stores/<name>/prompt.txt` if it has
+one, otherwise `stores/prompt.txt`. A prompt must contain the placeholders
+`{context}` (the retrieved chunks) and `{question}`, and no others; write a
+literal brace as `{{` or `}}`.
+
+Ingestion records a store's `embedding_model`, `chunk_size`, and
+`chunk_overlap` in `manifest.json` inside its vector store. If you change
+one of them afterwards, ingestion refuses to add to the store and the app
+refuses to search it with a different embedding model, explaining what
+changed. To rebuild with the new settings, delete the contents of the
+store's vector store and ingest again.
 
 To switch models without editing files, run the model picker. It shows a
 store's embedding and chat models next to the models installed in Ollama,
@@ -157,16 +180,17 @@ store's documents folder, which for the `default` store is:
 stores/default/documents/
 ```
 
-With the Ollama server running, ingest the documents and then run the sample
-questions:
+With the Ollama server running, ingest the documents and then ask questions
+about them:
 
 ```bash
 python -m src.ingest
 python -m src.app
 ```
 
-`src.app` currently asks two hard-coded questions. Change them in
-`src/app.py` to match the contents of your document.
+`src.app` prompts for questions until you press Enter on an empty line.
+Pressing Enter at the first prompt asks a sample question about the main
+topics of the documents.
 
 Each chunk is stored under a deterministic ID (`<source>:<page>:<chunk_index>`),
 so re-running ingestion only embeds chunks from files that are new since the
@@ -181,10 +205,11 @@ Run the automated tests from the project root with:
 pytest
 ```
 
-They cover loading settings, saving model choices, and the parts of
-ingestion that don't need Ollama (finding files, splitting, and chunk IDs),
-using temporary files so your real stores aren't touched. The retrieval and
-generation test files are still placeholders.
+They cover loading settings and prompts, the manifest, creating and
+selecting stores, saving model choices, and the parts of ingestion that don't
+need Ollama (finding files, splitting, and chunk IDs), using temporary files
+so your real stores aren't touched. The retrieval and generation test files
+are still placeholders.
 
 ## Notes & findings
 

@@ -25,6 +25,7 @@ from rich.text import Text
 
 from src import config
 from src.console import console
+from src.manifest import find_mismatches, has_vectors, read_manifest, write_manifest
 
 LOADERS = {
     ".pdf": PyPDFLoader,
@@ -285,8 +286,45 @@ def offer_to_delete_documents(data_path):
     console.print("All files in the documents folder have been deleted", style="success")
 
 
+def check_store_settings(store):
+    """Stops ingestion if the store's vectors were built with different settings.
+
+    Compares the store's embedding model and chunk settings with its
+    manifest. Adding chunks made with different settings would mix vectors
+    that can't be compared, or reuse chunk IDs for different text.
+
+    Args:
+        store (StoreConfig): The store about to be ingested into.
+
+    Raises:
+        SystemExit: If any fixed setting differs from the manifest.
+    """
+    manifest = read_manifest(store)
+    if manifest is None:
+        if has_vectors(store):
+            console.print(
+                "This store's vectors were built before settings were recorded, so "
+                "they can't be checked. They will be recorded after this run.",
+                style="warning",
+            )
+        return
+    mismatches = find_mismatches(store, manifest)
+    if mismatches:
+        console.print(Panel(
+            "\n".join(mismatches) + "\n\n"
+            "Change the settings back, or delete the contents of "
+            f"{store.vectorstore_path} and ingest again to rebuild the store with "
+            "the new settings.",
+            title="Settings changed since this store was built", border_style="red",
+        ))
+        raise SystemExit(1)
+
+
 def ingest_store(store, app_settings):
     """Loads, splits, embeds, and indexes a data store's documents.
+
+    Refuses to add to a store whose vectors were built with different fixed
+    settings, and records the settings in the store's manifest afterwards.
 
     Args:
         store (StoreConfig): The store to ingest into.
@@ -295,6 +333,7 @@ def ingest_store(store, app_settings):
     """
     console.rule("Setup")
     console.print(f"Data store: {store.name} ({store.config_path})", style="info")
+    check_store_settings(store)
     embedding_function = get_embedding_function(
         store.ingest.embedding_model, app_settings.ollama_host,
     )
@@ -303,9 +342,12 @@ def ingest_store(store, app_settings):
     documents = load_documents(store.documents_path)
     chunks = split_documents(documents, store.ingest.chunk_size, store.ingest.chunk_overlap)
     console.rule("Indexing")
-    index_documents(
+    vector_store = index_documents(
         chunks, embedding_function, store.vectorstore_path, store.ingest.embedding_batch_size,
     )
+    chunk_count = len(vector_store.get(include=[])["ids"])
+    if chunk_count:
+        write_manifest(store, chunk_count)
     offer_to_delete_documents(store.documents_path)
     console.rule("Done")
 

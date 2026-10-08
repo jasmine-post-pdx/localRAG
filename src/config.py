@@ -12,7 +12,9 @@ reads nothing.
 * Per-store settings are loaded into a ``StoreConfig`` by ``load_store``.
   Each is taken from the first of these that defines it: a shell variable
   with the setting's environment name (e.g. ``LLM_MODEL``),
-  ``stores/<name>/store.toml``, and ``stores/defaults.toml``.
+  ``stores/<name>/store.toml``, and ``stores/defaults.toml``. The store's
+  prompt template is ``stores/<name>/prompt.txt`` if it exists, otherwise
+  ``stores/prompt.txt``.
 
 ``.env`` can't set per-store settings, so one store's models and chunking
 don't leak into another; ``load_app_settings`` warns about any it contains.
@@ -27,6 +29,7 @@ Attributes:
         by a shell variable.
 """
 import os
+import string
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -40,6 +43,8 @@ ENV_PATH = PROJECT_ROOT / ".env"
 DEFAULT_ENV_PATH = PROJECT_ROOT / ".env.default"
 STORES_DIR = PROJECT_ROOT / "stores"
 STORE_DEFAULTS_PATH = STORES_DIR / "defaults.toml"
+PROMPT_FILENAME = "prompt.txt"
+PROMPT_FIELDS = {"context", "question"}
 
 # An empty table name means the key sits at the top level of the file.
 STORE_SETTINGS = {
@@ -127,6 +132,9 @@ class StoreConfig:
         vectorstore_path (Path): Folder where Chroma saves the store's data.
         ingest (IngestSettings): Settings used when ingesting.
         query (QuerySettings): Settings used when answering questions.
+        prompt_template (str): Prompt sent to the chat model, with
+            ``{context}`` and ``{question}`` placeholders.
+        prompt_path (Path): The file ``prompt_template`` was read from.
         sources (dict[str, str]): Where each setting's value came from, keyed
             by environment name: ``SHELL`` or a file path.
     """
@@ -138,6 +146,8 @@ class StoreConfig:
     vectorstore_path: Path
     ingest: IngestSettings
     query: QuerySettings
+    prompt_template: str
+    prompt_path: Path
     sources: dict[str, str]
 
     def get(self, name):
@@ -146,8 +156,42 @@ class StoreConfig:
         return getattr(getattr(self, table) if table else self, key)
 
 
+def model_with_tag(name):
+    """Returns a model name with Ollama's implicit ``:latest`` tag made explicit."""
+    return name if ":" in name else f"{name}:latest"
+
+
 def _dotted(table, key):
     return f"{table}.{key}" if table else key
+
+
+def _read_prompt(path):
+    """Reads a prompt template and checks its placeholders.
+
+    Raises:
+        RuntimeError: If the file is missing or its placeholders aren't
+            exactly ``{context}`` and ``{question}``.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        raise RuntimeError(f"{path} not found.") from None
+    try:
+        fields = {
+            field for _, field, _, _ in string.Formatter().parse(text) if field is not None
+        }
+    except ValueError as error:
+        raise RuntimeError(
+            f"{path} isn't a valid prompt template: {error}. "
+            "Write a literal brace as {{ or }}."
+        ) from None
+    if fields != PROMPT_FIELDS:
+        found = ", ".join(sorted("{" + field + "}" for field in fields)) or "none"
+        raise RuntimeError(
+            f"{path} must use the placeholders {{context}} and {{question}} and no "
+            f"others; found {found}. Write a literal brace as {{{{ or }}}}."
+        )
+    return text
 
 
 def _read_store_file(path):
@@ -315,6 +359,11 @@ def load_store(name, stores_dir=STORES_DIR, shell_env=None):
                 f"Add it to {config_path} or {defaults_path}."
             )
 
+    prompt_path = stores_dir / name / PROMPT_FILENAME
+    if not prompt_path.is_file():
+        prompt_path = stores_dir / PROMPT_FILENAME
+    prompt_template = _read_prompt(prompt_path)
+
     root = _store_dir(stores_dir, name)
     return StoreConfig(
         name=name,
@@ -325,5 +374,7 @@ def load_store(name, stores_dir=STORES_DIR, shell_env=None):
         vectorstore_path=root / Path(tables[""]["vectorstore_path"]).expanduser(),
         ingest=IngestSettings(**tables["ingest"]),
         query=QuerySettings(**tables["query"]),
+        prompt_template=prompt_template,
+        prompt_path=Path(os.path.relpath(prompt_path)),
         sources=sources,
     )

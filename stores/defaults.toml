@@ -4,9 +4,13 @@
 # stores/ with its own store.toml; any setting a store.toml leaves out is
 # taken from here.
 #
-# To start a new store, create stores/<name>/store.toml with the settings
-# that differ from these. Set the [ingest] ones explicitly even if they match,
-# so a later change here can't silently break an existing vector store.
+# To start a new store, run `python -m src.stores create <name>`, which
+# copies these settings into stores/<name>/store.toml. If you write a
+# store.toml by hand, set the [ingest] ones explicitly even if they match, so
+# a later change here can't silently break an existing vector store.
+#
+# Each store's prompt template is stores/<name>/prompt.txt if it exists,
+# otherwise stores/prompt.txt.
 #
 # Precedence, highest first:
 #   1. A shell variable with the setting's environment name (shown next to
@@ -32,7 +36,9 @@ vectorstore_path = "vectorstore"
 # already has data requires deleting the contents of its vector store and
 # ingesting again. Vectors from different embedding models can't be
 # compared, and chunk IDs (<source>:<page>:<chunk_index>) don't encode the
-# chunk settings, so new chunks would reuse old IDs.
+# chunk settings, so new chunks would reuse old IDs. Ingestion records these
+# three in the vector store's manifest.json and refuses to add to a store
+# built with different values.
 
 # Ollama model that embeds document chunks and questions. Pull it first with
 # `ollama pull <name>`.
