@@ -30,9 +30,10 @@ into a more conventional application structure:
   develops.
 - `src/generate.py` builds the retrieval and generation chain.
 - `src/app.py` is the application entry point.
-- `src/config.py` reads every tunable setting (models, paths, chunking,
-  retrieval) from the active data store's config and environment files so
-  the other modules hold no hard-coded values.
+- `src/config.py` loads every tunable setting (models, paths, chunking,
+  retrieval) into typed settings objects, from a data store's config and the
+  environment files. The entry points pass those objects down, so the other
+  modules hold no hard-coded values and can switch stores at runtime.
 - `src/util.py` holds maintenance tasks, currently an interactive picker for
   the active data store's embedding and chat models.
 - `tests/` mirrors those responsibilities and will hold the corresponding
@@ -114,26 +115,30 @@ Settings come in two kinds:
 
 The app runs with no extra setup, using the `default` store. To add a store,
 create `stores/<name>/store.toml` with the settings that differ from
-`stores/defaults.toml`, then select it by setting `RAG_STORE` in `.env` (see
-`.env.example`) or for one run:
+`stores/defaults.toml`. Every command takes `--store <name>` to choose a
+store; without it, they use `RAG_STORE`, which you can set in `.env` (see
+`.env.example`):
 
 ```bash
-RAG_STORE=research python -m src.ingest
-RAG_STORE=research python -m src.app
+python -m src.ingest --store research
+python -m src.app --store research
 ```
+
+While asking questions in `src.app`, type `/use <name>` to switch to another
+store, or `/use` on its own to list them.
 
 Changing a store's `embedding_model`, `chunk_size`, or `chunk_overlap` after
 ingesting requires deleting the contents of its vector store and ingesting
 again.
 
-To switch models without editing files, run the model picker. It shows the
-active store's embedding and chat models next to the models installed in
-Ollama, and saves any change to that store's `store.toml`. Press Enter at a
-prompt to keep the current model.
+To switch models without editing files, run the model picker. It shows a
+store's embedding and chat models next to the models installed in Ollama,
+and saves any change to that store's `store.toml`. Press Enter at a prompt
+to keep the current model.
 
 ```bash
 python -m src.util
-RAG_STORE=research python -m src.util   # another store
+python -m src.util --store research   # another store
 ```
 
 ### Models
@@ -176,11 +181,10 @@ Run the automated tests from the project root with:
 pytest
 ```
 
-They cover loading data store settings and saving model choices, using
-temporary stores so your real stores aren't touched. The ingestion,
-retrieval, and generation test files are still placeholders. Importing the
-app still loads the active store, so `RAG_STORE` must name a valid store
-even when running tests.
+They cover loading settings, saving model choices, and the parts of
+ingestion that don't need Ollama (finding files, splitting, and chunk IDs),
+using temporary files so your real stores aren't touched. The retrieval and
+generation test files are still placeholders.
 
 ## Notes & findings
 

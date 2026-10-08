@@ -1,14 +1,17 @@
 """Ingestion pipeline for the local RAG system.
 
-Loads source documents from ``config.DOCUMENTS_PATH``, splits them into
-chunks, generates embeddings, and persists them to the local vector store in
-``config.VECTORSTORE_PATH``.
+Loads a data store's source documents, splits them into chunks, generates
+embeddings, and persists them to the store's local vector store.
+
+Run from the project root with ``python -m src.ingest``, adding
+``--store <name>`` to ingest into a store other than the default.
 
 Attributes:
     LOADERS (dict[str, Callable[[str], BaseLoader]]): Maps a lowercase file
         extension to a factory that builds a LangChain loader for a file path.
         Files with other extensions are ignored.
 """
+import argparse
 import time
 from pathlib import Path
 
@@ -29,12 +32,11 @@ LOADERS = {
     ".md": lambda path: TextLoader(path, autodetect_encoding=True),
 }
 
-def find_document_files(data_path=config.DOCUMENTS_PATH):
+def find_document_files(data_path):
     """Lists every supported file in the data directory.
 
     Args:
-        data_path (str): Directory to search recursively. Defaults to
-            ``config.DOCUMENTS_PATH``.
+        data_path (str | Path): Directory to search recursively.
 
     Returns:
         list[Path]: Files whose extension is in LOADERS, sorted by path.
@@ -44,7 +46,7 @@ def find_document_files(data_path=config.DOCUMENTS_PATH):
         if path.suffix.lower() in LOADERS and path.is_file()
     ]
 
-def load_documents(data_path=config.DOCUMENTS_PATH):
+def load_documents(data_path):
     """Loads every supported file in the data directory as LangChain documents.
 
     Searches ``data_path`` recursively and loads each file whose extension is
@@ -52,8 +54,8 @@ def load_documents(data_path=config.DOCUMENTS_PATH):
     produce one Document per file.
 
     Args:
-        data_path (str): Directory to search. Defaults to
-            ``config.DOCUMENTS_PATH``.
+        data_path (str | Path): Directory to search, typically a store's
+            ``documents_path``.
 
     Returns:
         list[Document]: The loaded documents, with the text in
@@ -70,11 +72,7 @@ def load_documents(data_path=config.DOCUMENTS_PATH):
     )
     return documents
 
-def split_documents(
-    documents,
-    chunk_size=config.CHUNK_SIZE,
-    chunk_overlap=config.CHUNK_OVERLAP,
-):
+def split_documents(documents, chunk_size, chunk_overlap):
     """Splits documents into overlapping text chunks for embedding.
 
     Uses RecursiveCharacterTextSplitter, which breaks text on paragraph, line,
@@ -85,11 +83,9 @@ def split_documents(
     Args:
         documents (list[Document]): Documents to split, typically the per-page
             output of ``load_documents``.
-        chunk_size (int): Maximum characters per chunk. Defaults to
-            ``config.CHUNK_SIZE``.
+        chunk_size (int): Maximum characters per chunk.
         chunk_overlap (int): Characters shared between consecutive chunks.
-            Must be smaller than ``chunk_size``. Defaults to
-            ``config.CHUNK_OVERLAP``.
+            Must be smaller than ``chunk_size``.
 
     Returns:
         list[Document]: The chunks, each carrying a copy of its source
@@ -105,23 +101,24 @@ def split_documents(
     console.print(f"Split into {len(all_splits)} chunks", style="info")
     return all_splits
 
-def get_embedding_function(model_name=config.EMBEDDING_MODEL):
+def get_embedding_function(model_name, ollama_host):
     """Creates the embedding model used to vectorize document chunks.
 
     Returns a LangChain wrapper around a model served by the Ollama server at
-    ``config.OLLAMA_HOST``. Creating it doesn't contact Ollama; the server must
-    be running and the model pulled (e.g. ``ollama pull nomic-embed-text``)
+    ``ollama_host``. Creating it doesn't contact Ollama; the server must be
+    running and the model pulled (e.g. ``ollama pull nomic-embed-text``)
     before any text is actually embedded.
 
     Args:
-        model_name (str): Name of the Ollama embedding model to use. Defaults
-            to ``config.EMBEDDING_MODEL``.
+        model_name (str): Name of the Ollama embedding model to use,
+            typically a store's ``ingest.embedding_model``.
+        ollama_host (str): Address of the Ollama server.
 
     Returns:
         OllamaEmbeddings: An embedding function exposing ``embed_documents``
         and ``embed_query``, suitable for passing to a vector store.
     """
-    embeddings = OllamaEmbeddings(model=model_name, base_url=config.OLLAMA_HOST)
+    embeddings = OllamaEmbeddings(model=model_name, base_url=ollama_host)
     console.print(f"Initialized Ollama embeddings with model: {model_name}", style="info")
     return embeddings
 
@@ -144,7 +141,7 @@ def check_ollama(embedding_function):
         embedding_function.embed_query("ping")
     except ConnectionError:
         console.print(Panel(
-            f"Can't reach Ollama at {config.OLLAMA_HOST}.\n"
+            f"Can't reach Ollama at {embedding_function.base_url}.\n"
             "Start it with `ollama serve` (or open the Ollama app) and run ingestion again.",
             title="Error", border_style="red",
         ))
@@ -157,7 +154,7 @@ def check_ollama(embedding_function):
         ))
         raise SystemExit(1) from None
 
-def get_vector_store(embedding_function, persist_directory=config.VECTORSTORE_PATH):
+def get_vector_store(embedding_function, persist_directory):
     """Opens the persistent Chroma vector store.
 
     Loads the store saved in ``persist_directory``, or creates a new empty one
@@ -169,14 +166,14 @@ def get_vector_store(embedding_function, persist_directory=config.VECTORSTORE_PA
             to the store and queries run against it, typically the output of
             ``get_embedding_function``. It must be the same model that embedded
             any vectors already saved in the store.
-        persist_directory (str): Directory where Chroma saves its data.
-            Defaults to ``config.VECTORSTORE_PATH``.
+        persist_directory (str | Path): Directory where Chroma saves its
+            data, typically a store's ``vectorstore_path``.
 
     Returns:
         Chroma: The vector store, which writes changes to ``persist_directory``.
     """
     vectorstore = Chroma(
-        persist_directory=persist_directory,
+        persist_directory=str(persist_directory),
         embedding_function=embedding_function,
     )
     console.print(f"Vector store initialized/loaded from: {persist_directory}", style="info")
@@ -208,7 +205,7 @@ def assign_chunk_ids(chunks):
         chunk.metadata["id"] = f"{source}:{page}:{index}"
     return chunks
 
-def index_documents(chunks, embedding_function, persist_directory=config.VECTORSTORE_PATH):
+def index_documents(chunks, embedding_function, persist_directory, batch_size):
     """Embeds document chunks and saves the new ones in Chroma.
 
     Assigns each chunk a deterministic ID with ``assign_chunk_ids``, then
@@ -226,8 +223,9 @@ def index_documents(chunks, embedding_function, persist_directory=config.VECTORS
         embedding_function (Embeddings): Model used to embed the chunks,
             typically the output of ``get_embedding_function``. For an Ollama
             model, the server must be running and the model pulled.
-        persist_directory (str): Directory where Chroma saves its data.
-            Defaults to ``config.VECTORSTORE_PATH``.
+        persist_directory (str | Path): Directory where Chroma saves its
+            data, typically a store's ``vectorstore_path``.
+        batch_size (int): Chunks sent to the embedding model per request.
 
     Returns:
         Chroma: The vector store, including any newly indexed chunks.
@@ -244,7 +242,6 @@ def index_documents(chunks, embedding_function, persist_directory=config.VECTORS
     )
 
     if new_chunks:
-        batch_size = config.EMBEDDING_BATCH_SIZE
         for start in range(0, len(new_chunks), batch_size):
             batch = new_chunks[start:start + batch_size]
             for attempt in range(3):
@@ -259,7 +256,7 @@ def index_documents(chunks, embedding_function, persist_directory=config.VECTORS
     console.print(f"Indexing complete. Data saved to: {persist_directory}", style="success")
     return vector_store
 
-def offer_to_delete_documents(data_path=config.DOCUMENTS_PATH):
+def offer_to_delete_documents(data_path):
     """Asks whether to delete the ingested files and deletes them if confirmed.
 
     Only files with a supported extension are deleted; anything ingestion
@@ -267,8 +264,7 @@ def offer_to_delete_documents(data_path=config.DOCUMENTS_PATH):
     Enter, keeps the files.
 
     Args:
-        data_path (str): Directory whose supported files may be deleted.
-            Defaults to ``config.DOCUMENTS_PATH``.
+        data_path (str | Path): Directory whose supported files may be deleted.
     """
     files = find_document_files(data_path)
     if not files:
@@ -289,14 +285,41 @@ def offer_to_delete_documents(data_path=config.DOCUMENTS_PATH):
     console.print("All files in the documents folder have been deleted", style="success")
 
 
-if __name__ == "__main__":
+def ingest_store(store, app_settings):
+    """Loads, splits, embeds, and indexes a data store's documents.
+
+    Args:
+        store (StoreConfig): The store to ingest into.
+        app_settings (AppSettings): Machine-wide settings, for the Ollama
+            address.
+    """
     console.rule("Setup")
-    embedding_function = get_embedding_function()
+    console.print(f"Data store: {store.name} ({store.config_path})", style="info")
+    embedding_function = get_embedding_function(
+        store.ingest.embedding_model, app_settings.ollama_host,
+    )
     check_ollama(embedding_function)
     console.rule("Loading documents")
-    documents = load_documents()
-    chunks = split_documents(documents)
+    documents = load_documents(store.documents_path)
+    chunks = split_documents(documents, store.ingest.chunk_size, store.ingest.chunk_overlap)
     console.rule("Indexing")
-    index_documents(chunks, embedding_function)
-    offer_to_delete_documents()
+    index_documents(
+        chunks, embedding_function, store.vectorstore_path, store.ingest.embedding_batch_size,
+    )
+    offer_to_delete_documents(store.documents_path)
     console.rule("Done")
+
+
+def main(argv=None):
+    """Ingests the documents of the store named by ``--store``, or ``RAG_STORE``."""
+    parser = argparse.ArgumentParser(description="Ingest a data store's documents.")
+    parser.add_argument("--store", help="data store to ingest into (default: RAG_STORE)")
+    args = parser.parse_args(argv)
+
+    app_settings = config.load_app_settings()
+    store = config.load_store(args.store or app_settings.default_store)
+    ingest_store(store, app_settings)
+
+
+if __name__ == "__main__":
+    main()

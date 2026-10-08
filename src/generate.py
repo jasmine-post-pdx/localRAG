@@ -9,62 +9,51 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 
-from src import config
 from src.console import console
 
 
-def create_rag_chain(
-    vector_store,
-    llm_model_name=config.LLM_MODEL,
-    context_window=config.LLM_CONTEXT_WINDOW,
-    temperature=config.LLM_TEMPERATURE,
-    k=config.RETRIEVAL_K,
-):
+def create_rag_chain(vector_store, query_settings, ollama_host):
     """Creates a retrieval-augmented generation chain backed by Ollama.
 
-    The chain retrieves the ``k`` most similar documents from the vector
-    store, inserts them into a prompt alongside the user's question, sends
-    the prompt to the Ollama chat model at ``config.OLLAMA_HOST``, and parses
-    the response into a plain string.
+    The chain retrieves the ``query_settings.retrieval_k`` most similar
+    documents from the vector store, inserts them into a prompt alongside the
+    user's question, sends the prompt to the Ollama chat model at
+    ``ollama_host``, and parses the response into a plain string.
 
     Args:
         vector_store: A LangChain vector store that supports
             ``as_retriever()`` and holds the indexed document chunks.
-        llm_model_name: Name of the Ollama model to use for generation.
-            Must already be pulled locally (e.g. ``ollama pull qwen3:8b``).
-            Defaults to ``config.LLM_MODEL``.
-        context_window: Size of the model's context window in tokens,
-            passed to Ollama as ``num_ctx``. Defaults to
-            ``config.LLM_CONTEXT_WINDOW``.
-        temperature: Sampling temperature for the model. Defaults to
-            ``config.LLM_TEMPERATURE``.
-        k: Number of chunks to retrieve for each question. Defaults to
-            ``config.RETRIEVAL_K``.
+        query_settings (QuerySettings): The store's chat model, its context
+            window and temperature, and the number of chunks to retrieve.
+            The model must already be pulled (e.g. ``ollama pull qwen3:8b``).
+        ollama_host (str): Address of the Ollama server.
 
     Returns:
         A LangChain ``Runnable`` that takes a question string via
         ``invoke()`` and returns the generated answer as a string.
 
     Example:
-        >>> chain = create_rag_chain(vector_store)
+        >>> chain = create_rag_chain(vector_store, store.query, app_settings.ollama_host)
         >>> chain.invoke("What is the refund policy?")
         'Refunds are available within 30 days...'
     """
 
     # Initialize the LLM.
     llm = ChatOllama(
-        model=llm_model_name,
-        base_url=config.OLLAMA_HOST,
-        temperature=temperature,
-        num_ctx=context_window,
+        model=query_settings.llm_model,
+        base_url=ollama_host,
+        temperature=query_settings.temperature,
+        num_ctx=query_settings.context_window,
     )
     console.print(
-        f"Initialized ChatOllama with model: {llm_model_name}, "
-        f"context window: {context_window}, temperature: {temperature}",
+        f"Initialized ChatOllama with model: {query_settings.llm_model}, "
+        f"context window: {query_settings.context_window}, "
+        f"temperature: {query_settings.temperature}",
         style="info",
     )
 
     # Create the retriever.
+    k = query_settings.retrieval_k
     retriever = vector_store.as_retriever(
         search_type="similarity",
         search_kwargs={"k": k},
