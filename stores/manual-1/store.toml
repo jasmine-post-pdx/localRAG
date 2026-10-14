@@ -1,0 +1,21 @@
+# store.toml
+#
+# Settings for the "manual-1" data store. Anything left out is taken from
+# stores/defaults.toml, which explains each setting.
+
+description = ""
+
+[ingest]
+# Fixed once documents are ingested. Changing embedding_model, chunk_size,
+# or chunk_overlap later requires deleting the contents of vectorstore/.
+embedding_model = "embeddinggemma:latest"
+chunk_size = 1000
+chunk_overlap = 200
+embedding_batch_size = 32
+
+[query]
+# Safe to change at any time without re-ingesting.
+llm_model = "deepseek-r1:8b"
+temperature = 0.0
+context_window = 8192
+retrieval_k = 3

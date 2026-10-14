@@ -5,8 +5,8 @@
 from pathlib import Path
 
 import pytest
-
 from conftest import DEFAULT_PROMPT, DEFAULTS
+
 from src.config import (
     SHELL,
     IngestSettings,

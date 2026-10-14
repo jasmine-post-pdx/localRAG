@@ -4,10 +4,10 @@ Combines context retrieved from the vector store with the user's question
 into a prompt and sends it to a local LLM served by Ollama to produce an
 answer.
 """
-from langchain_ollama import ChatOllama
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
+from langchain_ollama import ChatOllama
 
 from src.console import console
 
