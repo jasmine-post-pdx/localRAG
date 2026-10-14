@@ -9,17 +9,21 @@ langchain-ollama
 # Local vector database
 chromadb
 
-# Alternative local embeddings
-sentence-transformers
-
 # PDF loading
 pypdf
+
+# Encoding detection for non-UTF-8 text files
+# (chardet 6+ returns fields langchain-community's TextLoader can't handle)
+chardet<6
 
 # Environment variable management
 python-dotenv
 
-# Alternative document loader for complex PDFs
-unstructured[pdf]
+# Editing data store config files without losing their comments
+tomlkit
 
-# Token counting
-tiktoken
+# Styled terminal output (section rules, colored status lines, error panels)
+rich
+
+# Test runner
+pytest

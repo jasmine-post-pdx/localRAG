@@ -221,10 +221,15 @@ __marimo__/
 # macOS
 .DS_Store
 
-# Local documents (keep folder, ignore contents)
-data/documents/*
-!data/documents/.gitkeep
+# Data stores other than `default` are local-only
+# (stores/defaults.toml and stores/prompt.txt stay tracked; they are shared defaults)
+stores/*/
+!stores/default/
 
-# Local vector store (keep folder, ignore contents)
-data/vectorstore/*
-!data/vectorstore/.gitkeep
+# Local documents for each store (keep folder, ignore contents)
+stores/*/documents/*
+!stores/*/documents/.gitkeep
+
+# Local vector store for each store (keep folder, ignore contents)
+stores/*/vectorstore/*
+!stores/*/vectorstore/.gitkeep

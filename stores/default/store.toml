@@ -1,0 +1,27 @@
+# store.toml
+#
+# Settings for the "default" data store. Anything left out is taken from
+# stores/defaults.toml, which explains each setting.
+#
+# Paths are relative to this store's folder unless absolute.
+
+description = "Default store"
+documents_path = "documents"
+vectorstore_path = "vectorstore"
+
+[ingest]
+# Fixed once documents are ingested. Changing any of these requires deleting
+# the contents of vectorstore/ and ingesting again.
+embedding_model = "nomic-embed-text"
+chunk_size = 1000
+chunk_overlap = 200
+
+# Chunks sent to Ollama per embedding request. Safe to change at any time.
+embedding_batch_size = 32
+
+[query]
+# Safe to change at any time without re-ingesting.
+llm_model = "qwen3:8b"
+temperature = 0
+context_window = 8192
+retrieval_k = 3

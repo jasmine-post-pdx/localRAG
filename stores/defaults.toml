@@ -1,0 +1,82 @@
+# defaults.toml
+#
+# Default settings for every data store. Each store is a folder under
+# stores/ with its own store.toml; any setting a store.toml leaves out is
+# taken from here.
+#
+# To start a new store, run `python -m src.stores create <name>`, which
+# copies these settings into stores/<name>/store.toml. If you write a
+# store.toml by hand, set the [ingest] ones explicitly even if they match, so
+# a later change here can't silently break an existing vector store.
+#
+# Each store's prompt template is stores/<name>/prompt.txt if it exists,
+# otherwise stores/prompt.txt.
+#
+# Precedence, highest first:
+#   1. A shell variable with the setting's environment name (shown next to
+#      each setting), for one run: LLM_MODEL=qwen3:4b python -m src.app
+#   2. stores/<name>/store.toml
+#   3. This file
+#
+# Machine-wide settings (the Ollama address and which store to use) live in
+# .env.default and .env instead.
+
+# Short note about what the store holds.
+description = ""
+
+# Folder searched recursively for .pdf, .txt, and .md files to ingest, and
+# folder where Chroma saves the vector store. Relative paths are resolved
+# from the store's folder; absolute paths and ~ work too.
+# Environment names: DOCUMENTS_PATH, VECTORSTORE_PATH
+documents_path = "documents"
+vectorstore_path = "vectorstore"
+
+[ingest]
+# Changing embedding_model, chunk_size, or chunk_overlap for a store that
+# already has data requires deleting the contents of its vector store and
+# ingesting again. Vectors from different embedding models can't be
+# compared, and chunk IDs (<source>:<page>:<chunk_index>) don't encode the
+# chunk settings, so new chunks would reuse old IDs. Ingestion records these
+# three in the vector store's manifest.json and refuses to add to a store
+# built with different values.
+
+# Ollama model that embeds document chunks and questions. Pull it first with
+# `ollama pull <name>`.
+# Environment name: EMBEDDING_MODEL
+embedding_model = "nomic-embed-text"
+
+# Maximum characters per chunk.
+# Environment name: CHUNK_SIZE
+chunk_size = 1000
+
+# Characters shared between consecutive chunks so context isn't cut off at
+# chunk boundaries. Must be smaller than chunk_size.
+# Environment name: CHUNK_OVERLAP
+chunk_overlap = 200
+
+# Number of chunks sent to Ollama per embedding request. Lower it if Ollama
+# errors or runs out of memory during ingestion. Safe to change at any time.
+# Environment name: EMBEDDING_BATCH_SIZE
+embedding_batch_size = 32
+
+[query]
+# All of these are safe to change without re-ingesting.
+
+# Ollama chat model that writes the answers. Pull it first with
+# `ollama pull <name>`.
+# Environment name: LLM_MODEL
+llm_model = "qwen3:8b"
+
+# Sampling temperature. 0 gives the same answer for the same question and
+# context; higher values give more varied wording.
+# Environment name: LLM_TEMPERATURE
+temperature = 0
+
+# Context window in tokens, passed to Ollama as num_ctx. It must hold the
+# prompt, the retrieved chunks, and the answer. Larger values use more memory.
+# Environment name: LLM_CONTEXT_WINDOW
+context_window = 8192
+
+# Number of most similar chunks added to the prompt for each question.
+# Environment name: RETRIEVAL_K
+retrieval_k = 3

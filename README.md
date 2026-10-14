@@ -13,9 +13,10 @@ also allows me to apply the testing discipline I have developed throughout my
 career and is part of a series of public projects documenting the skills I am
 building as I pursue an AI engineering role in early 2027.
 
-The current prototype loads a local PDF, splits it into overlapping chunks,
-embeds those chunks into a persistent vector store, and answers two sample
-questions with a locally hosted model.
+The current prototype loads local documents (PDF, text, and Markdown),
+splits them into overlapping chunks, embeds those chunks into a persistent
+vector store, and answers questions about them interactively with a locally
+hosted model.
 
 ## From tutorial to structured project
 
@@ -30,7 +31,18 @@ into a more conventional application structure:
   develops.
 - `src/generate.py` builds the retrieval and generation chain.
 - `src/app.py` is the application entry point.
-- `tests/` mirrors those responsibilities and will hold the corresponding
+- `src/config.py` loads every tunable setting (models, paths, chunking,
+  retrieval) into typed settings objects, from a data store's config and the
+  environment files. The entry points pass those objects down, so the other
+  modules hold no hard-coded values and can switch stores at runtime.
+- `src/manifest.py` records the settings each data store's vectors were
+  built with, so changed settings are caught before they cause errors.
+- `src/stores.py` lists, inspects, creates, and selects data stores.
+- `src/util.py` holds maintenance tasks, currently an interactive picker for
+  a data store's embedding and chat models.
+- `src/console.py` holds the shared Rich console that styles the terminal
+  output (section rules, status lines, answer and error panels).
+- `tests/` mirrors those responsibilities and holds the corresponding
   automated tests.
 
 This was a deliberate engineering change, not just an organizational choice.
@@ -60,9 +72,6 @@ without turning one learning script into a growing monolith.
 - **ChromaDB** — persists embeddings locally between ingestion and querying.
 - **PyPDF** — extracts text and page metadata from the source PDF.
 
-`sentence-transformers`, `unstructured[pdf]`, and `tiktoken` are installed as
-experimental options but are not part of the current execution path.
-
 ## Running it
 
 ### Prerequisites
@@ -82,36 +91,127 @@ python -m pip install -r requirements.txt
 For the exact dependency versions captured during development, install
 `requirements.lock` instead of `requirements.txt`.
 
-Pull the two local models:
+### Configuration
+
+The app can keep several independent **data stores**, each with its own
+documents, vector store, and settings. Each store is a folder under
+`stores/`:
+
+```text
+stores/
+  defaults.toml     # default settings for every store, with explanations
+  prompt.txt        # default prompt template for every store
+  default/
+    store.toml      # this store's settings
+    prompt.txt      # optional: this store's own prompt template
+    documents/
+    vectorstore/    # includes manifest.json, written by ingestion
+```
+
+Settings come in two kinds:
+
+- **Per-store settings** (models, chunking, retrieval, paths) are taken from
+  the first of: a shell variable for one run, such as
+  `LLM_MODEL=qwen3:4b python -m src.app`; the store's `store.toml`; and
+  `stores/defaults.toml`.
+- **Machine-wide settings** (the Ollama address and which store to use) are
+  taken from the first of: your shell; `.env`, your personal overrides,
+  ignored by Git; and `.env.default`, the committed defaults.
+
+The app runs with no extra setup, using the `default` store. Manage stores
+with `src.stores`:
+
+```bash
+python -m src.stores                      # list stores, their models, and what's ingested
+python -m src.stores info research        # settings, where each is set, paths, status
+python -m src.stores create research --description "ML papers" \
+    --embedding-model mxbai-embed-large   # or --copy-from <store>
+python -m src.stores use research         # make it the default (saved in .env)
+```
+
+`create` writes every ingest and query setting into the new store's
+`store.toml`, so later changes to `stores/defaults.toml` can't silently
+change it. Every other command takes `--store <name>` to choose a store for
+one run; without it, they use the default store (`RAG_STORE`):
+
+```bash
+python -m src.ingest --store research
+python -m src.app --store research
+```
+
+While asking questions in `src.app`, type `/use <name>` to switch to another
+store, or `/use` on its own to list them.
+
+Each store answers with the prompt in `stores/<name>/prompt.txt` if it has
+one, otherwise `stores/prompt.txt`. A prompt must contain the placeholders
+`{context}` (the retrieved chunks) and `{question}`, and no others; write a
+literal brace as `{{` or `}}`.
+
+Ingestion records a store's `embedding_model`, `chunk_size`, and
+`chunk_overlap` in `manifest.json` inside its vector store. If you change
+one of them afterwards, ingestion refuses to add to the store and the app
+refuses to search it with a different embedding model, explaining what
+changed. To rebuild with the new settings, delete the contents of the
+store's vector store and ingest again.
+
+To switch models without editing files, run the model picker. It shows a
+store's embedding and chat models next to the models installed in Ollama,
+and saves any change to that store's `store.toml`. Press Enter at a prompt
+to keep the current model.
+
+```bash
+python -m src.util
+python -m src.util --store research   # another store
+```
+
+### Models
+
+Pull the two local models (or whichever ones you configured):
 
 ```bash
 ollama pull nomic-embed-text
 ollama pull qwen3:8b
 ```
 
-Place a PDF at:
+Place your source files (`.pdf`, `.txt`, or `.md`) anywhere under the active
+store's documents folder, which for the `default` store is:
 
 ```text
-data/documents/document.pdf
+stores/default/documents/
 ```
 
-With the Ollama server running, ingest the document and then run the sample
-questions:
+With the Ollama server running, ingest the documents and then ask questions
+about them:
 
 ```bash
 python -m src.ingest
 python -m src.app
 ```
 
-`src.app` currently asks two hard-coded questions. Change them in
-`src/app.py` to match the contents of your document.
+`src.app` prompts for questions until you press Enter on an empty line.
+Pressing Enter at the first prompt asks a sample question about the main
+topics of the documents.
 
-Re-running ingestion adds another copy of every chunk. To rebuild cleanly,
-remove the contents of `data/vectorstore/` before running `src.ingest` again.
+Each chunk is stored under a deterministic ID (`<source>:<page>:<chunk_index>`),
+so re-running ingestion only embeds chunks from files that are new since the
+last run. Chunks already in the store are not updated, so after editing or
+removing a file, delete the contents of `stores/default/vectorstore/` and run `src.ingest`
+again to rebuild.
 Source documents and vector-store data are intentionally excluded from Git.
 
-Automated tests are not runnable yet: the files under `tests/` are placeholders
-and no test runner is declared as a dependency.
+Run the automated tests from the project root with:
+
+```bash
+pytest
+```
+
+They cover loading settings and prompts, the manifest, creating and
+selecting stores, saving model choices, the app's question loop and store
+switching, and generation's prompt construction and chain wiring, plus the
+parts of ingestion that don't need Ollama (finding files, splitting, and
+chunk IDs). Fakes stand in for Ollama, Chroma, and the keyboard, and stores
+load from temporary files, so your real stores aren't touched. Only the
+retrieval test file is still a placeholder, matching `src/retrieve.py`.
 
 ## Notes & findings
 
@@ -132,18 +232,16 @@ projects.
 
 - [ ] Explore the existing codebase to understand component interactions and
   assess how minor changes affect overall functionality.
-- [ ] Prevent duplicate ingestion with deterministic chunk IDs or a documented
+- [x] Prevent duplicate ingestion with deterministic chunk IDs or a documented
   rebuild/update workflow.
-- [ ] Support multiple source documents instead of one fixed PDF.
-- [ ] Implement an interactive CLI rather than hard-coded sample questions.
-- [ ] Turn the placeholder tests into unit and integration tests and add a test
-  runner.
+- [x] Support multiple source documents instead of one fixed PDF.
+- [x] Implement an interactive CLI rather than hard-coded sample questions.
+- [x] Turn the placeholder tests into unit and integration tests and add a
+  test runner.
 - [ ] Add a small evaluation set with expected source passages and measure
   retrieval recall before tuning chunk size, overlap, or `k`.
-- [ ] Move paths, models, chunk settings, and retrieval settings into real
+- [x] Move paths, models, chunk settings, and retrieval settings into real
   configuration.
 - [ ] Format retrieved context explicitly and return source/page citations.
 - [ ] Add clear errors for missing documents, empty indexes, unavailable
   Ollama, missing models, and PDF extraction failures.
-- [ ] Decide whether the experimental dependencies should be integrated or
-  removed.
