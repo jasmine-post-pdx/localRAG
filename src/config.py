@@ -60,7 +60,7 @@ STORE_SETTINGS = {
     "RETRIEVAL_K": ("query", "retrieval_k", int),
 }
 
-# Keys allowed in store.toml that describe the store rather than configure it.
+# Keys allowed in  .toml that describe the store rather than configure it.
 STORE_INFO_KEYS = {("", "description")}
 
 SHELL = "the shell"

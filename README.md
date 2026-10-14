@@ -13,9 +13,10 @@ also allows me to apply the testing discipline I have developed throughout my
 career and is part of a series of public projects documenting the skills I am
 building as I pursue an AI engineering role in early 2027.
 
-The current prototype loads a local PDF, splits it into overlapping chunks,
-embeds those chunks into a persistent vector store, and answers two sample
-questions with a locally hosted model.
+The current prototype loads local documents (PDF, text, and Markdown),
+splits them into overlapping chunks, embeds those chunks into a persistent
+vector store, and answers questions about them interactively with a locally
+hosted model.
 
 ## From tutorial to structured project
 
@@ -39,7 +40,9 @@ into a more conventional application structure:
 - `src/stores.py` lists, inspects, creates, and selects data stores.
 - `src/util.py` holds maintenance tasks, currently an interactive picker for
   a data store's embedding and chat models.
-- `tests/` mirrors those responsibilities and will hold the corresponding
+- `src/console.py` holds the shared Rich console that styles the terminal
+  output (section rules, status lines, answer and error panels).
+- `tests/` mirrors those responsibilities and holds the corresponding
   automated tests.
 
 This was a deliberate engineering change, not just an organizational choice.
@@ -68,9 +71,6 @@ without turning one learning script into a growing monolith.
   output with a temperature of `0`.
 - **ChromaDB** — persists embeddings locally between ingestion and querying.
 - **PyPDF** — extracts text and page metadata from the source PDF.
-
-`sentence-transformers`, `unstructured[pdf]`, and `tiktoken` are installed as
-experimental options but are not part of the current execution path.
 
 ## Running it
 
@@ -206,10 +206,12 @@ pytest
 ```
 
 They cover loading settings and prompts, the manifest, creating and
-selecting stores, saving model choices, and the parts of ingestion that don't
-need Ollama (finding files, splitting, and chunk IDs), using temporary files
-so your real stores aren't touched. The retrieval and generation test files
-are still placeholders.
+selecting stores, saving model choices, the app's question loop and store
+switching, and generation's prompt construction and chain wiring, plus the
+parts of ingestion that don't need Ollama (finding files, splitting, and
+chunk IDs). Fakes stand in for Ollama, Chroma, and the keyboard, and stores
+load from temporary files, so your real stores aren't touched. Only the
+retrieval test file is still a placeholder, matching `src/retrieve.py`.
 
 ## Notes & findings
 
@@ -233,9 +235,9 @@ projects.
 - [x] Prevent duplicate ingestion with deterministic chunk IDs or a documented
   rebuild/update workflow.
 - [x] Support multiple source documents instead of one fixed PDF.
-- [ ] Implement an interactive CLI rather than hard-coded sample questions.
-- [ ] Turn the placeholder tests into unit and integration tests and add a test
-  runner.
+- [x] Implement an interactive CLI rather than hard-coded sample questions.
+- [x] Turn the placeholder tests into unit and integration tests and add a
+  test runner.
 - [ ] Add a small evaluation set with expected source passages and measure
   retrieval recall before tuning chunk size, overlap, or `k`.
 - [x] Move paths, models, chunk settings, and retrieval settings into real
@@ -243,5 +245,3 @@ projects.
 - [ ] Format retrieved context explicitly and return source/page citations.
 - [ ] Add clear errors for missing documents, empty indexes, unavailable
   Ollama, missing models, and PDF extraction failures.
-- [ ] Decide whether the experimental dependencies should be integrated or
-  removed.

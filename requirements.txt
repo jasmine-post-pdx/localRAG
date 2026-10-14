@@ -9,9 +9,6 @@ langchain-ollama
 # Local vector database
 chromadb
 
-# Alternative local embeddings
-sentence-transformers
-
 # PDF loading
 pypdf
 
@@ -24,12 +21,6 @@ python-dotenv
 
 # Editing data store config files without losing their comments
 tomlkit
-
-# Alternative document loader for complex PDFs
-unstructured[pdf]
-
-# Token counting
-tiktoken
 
 # Styled terminal output (section rules, colored status lines, error panels)
 rich

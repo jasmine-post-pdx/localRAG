@@ -221,6 +221,11 @@ __marimo__/
 # macOS
 .DS_Store
 
+# Data stores other than `default` are local-only
+# (stores/defaults.toml and stores/prompt.txt stay tracked; they are shared defaults)
+stores/*/
+!stores/default/
+
 # Local documents for each store (keep folder, ignore contents)
 stores/*/documents/*
 !stores/*/documents/.gitkeep
