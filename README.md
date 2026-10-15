@@ -106,7 +106,7 @@ stores/
     store.toml      # this store's settings
     prompt.txt      # optional: this store's own prompt template
     documents/
-    vectorstore/    # includes manifest.json, written by ingestion
+    vectorstore/    # manifest.json is created after successful ingestion
 ```
 
 Settings come in two kinds:
@@ -119,8 +119,9 @@ Settings come in two kinds:
   taken from the first of: your shell; `.env`, your personal overrides,
   ignored by Git; and `.env.default`, the committed defaults.
 
-The app runs with no extra setup, using the `default` store. Manage stores
-with `src.stores`:
+Commands use the `default` store unless you choose another one. Asking
+questions still requires readable documents to be ingested first. Manage
+stores with `src.stores`:
 
 ```bash
 python -m src.stores                      # list stores, their models, and what's ingested
@@ -201,6 +202,8 @@ last run. Chunks already in the store are not updated, so after editing or
 removing a file, delete the contents of the active store's `vectorstore/`
 folder and run `src.ingest` again to rebuild.
 Source documents and vector-store data are intentionally excluded from Git.
+Data stores other than `default` are also local-only by default, including
+their `store.toml` and prompt files, unless the Git ignore rules are changed.
 
 Run the automated tests from the project root with:
 
