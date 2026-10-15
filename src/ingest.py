@@ -62,9 +62,24 @@ def load_documents(data_path):
         list[Document]: The loaded documents, with the text in
         ``page_content`` and the source path in ``metadata["source"]``. PDF
         pages also have a zero-based ``metadata["page"]``.
+
+    Raises:
+        RuntimeError: If the data directory doesn't exist or contains no
+            supported files.
     """
-    documents = []
+    if not Path(data_path).is_dir():
+        raise RuntimeError(
+            f"Documents folder {data_path} doesn't exist. "
+            "Create it and add documents to ingest."
+        )
     files = find_document_files(data_path)
+    if not files:
+        supported = ", ".join(sorted(LOADERS))
+        raise RuntimeError(
+            f"No documents found in {data_path}. "
+            f"Add files with one of these extensions: {supported}."
+        )
+    documents = []
     for path in files:
         documents.extend(LOADERS[path.suffix.lower()](str(path)).load())
     console.print(
@@ -339,7 +354,11 @@ def ingest_store(store, app_settings):
     )
     check_ollama(embedding_function)
     console.rule("Loading documents")
-    documents = load_documents(store.documents_path)
+    try:
+        documents = load_documents(store.documents_path)
+    except RuntimeError as error:
+        console.print(Panel(str(error), title="Error", border_style="red"))
+        raise SystemExit(1) from None
     chunks = split_documents(documents, store.ingest.chunk_size, store.ingest.chunk_overlap)
     console.rule("Indexing")
     vector_store = index_documents(
