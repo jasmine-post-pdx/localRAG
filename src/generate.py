@@ -16,6 +16,7 @@ from langchain_ollama import ChatOllama
 from ollama import Client, ResponseError
 
 from src.console import console
+from src.retrieve import create_retriever
 
 
 def check_chat_model(llm_model, ollama_host):
@@ -153,14 +154,7 @@ def create_rag_chain(vector_store, query_settings, prompt_template, ollama_host)
         style="info",
     )
 
-    # Create the retriever.
-    k = query_settings.retrieval_k
-    retriever = vector_store.as_retriever(
-        search_type="similarity",
-        search_kwargs={"k": k},
-    )
-    console.print(f"Retriever initialized (k={k}).", style="info")
-
+    retriever = create_retriever(vector_store, query_settings)
     prompt = ChatPromptTemplate.from_template(prompt_template)
     console.print("Prompt template created.", style="info")
 

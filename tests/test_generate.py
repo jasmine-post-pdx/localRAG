@@ -66,14 +66,6 @@ def test_chat_model_uses_query_settings_and_host(vector_store):
     assert llm.num_ctx == 4096
 
 
-def test_retriever_fetches_retrieval_k_chunks(vector_store):
-    chain = make_chain(vector_store, QuerySettings("qwen3:8b", 0.0, 8192, 1))
-
-    retriever = chain.steps[0].steps__["docs"]
-    assert retriever.search_type == "similarity"
-    assert retriever.search_kwargs == {"k": 1}
-
-
 def test_chain_returns_answer_and_retrieved_chunks(vector_store, fake_llm):
     chain = make_chain(vector_store)
 
