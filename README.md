@@ -119,6 +119,10 @@ Settings come in two kinds:
   taken from the first of: your shell; `.env`, your personal overrides,
   ignored by Git; and `.env.default`, the committed defaults.
 
+To create personal machine-wide overrides, copy `.env.example` to `.env` and
+uncomment the values you want to change. Do not put real secrets in `.env`;
+the current app does not need any.
+
 Commands use the `default` store unless you choose another one. Asking
 questions still requires readable documents to be ingested first. Manage
 stores with `src.stores`:
@@ -205,6 +209,45 @@ Source documents and vector-store data are intentionally excluded from Git.
 Data stores other than `default` are also local-only by default, including
 their `store.toml` and prompt files, unless the Git ignore rules are changed.
 
+## Data And Privacy
+
+Documents live under the active store's `documents/` folder. Chroma writes the
+local index under that store's `vectorstore/` folder, including `manifest.json`
+after successful ingestion. The app does not write question/answer logs; answers
+and retrieved sources are printed to the terminal.
+
+Embedding and chat requests are sent to the configured Ollama server
+(`OLLAMA_HOST`, default `http://localhost:11434`). The app does not call hosted
+LLM APIs by default. If you point `OLLAMA_HOST` at another machine, document
+chunks and questions are sent to that Ollama server.
+
+To clear or rebuild an index, delete the contents of the active store's
+`vectorstore/` folder and run `python -m src.ingest` again. To remove local
+source documents too, delete them from the store's `documents/` folder.
+
+## Limitations And Troubleshooting
+
+- Supported source files are `.pdf`, `.txt`, and `.md`. Other file types are
+  ignored during ingestion.
+- Scanned or image-only PDFs do not produce text chunks unless OCR has already
+  been run outside this app.
+- Ollama must be running, and the configured embedding and chat models must be
+  pulled locally. The app reports startup errors with the relevant
+  `ollama serve` or `ollama pull <model>` command.
+- Empty stores and empty indexes cannot answer questions. Add readable files to
+  the active store's `documents/` folder and run `python -m src.ingest`.
+- Edited or deleted source files are not automatically reflected in Chroma.
+  Rebuild the store's `vectorstore/` after changing source content.
+- Changing `embedding_model`, `chunk_size`, or `chunk_overlap` after ingestion
+  requires rebuilding the vector store. Query-only settings such as
+  `retrieval_k`, `llm_model`, temperature, and context window can be changed
+  without re-ingesting.
+- Local models can use significant CPU, memory, and disk. If ingestion or
+  generation is slow or unstable, try a smaller model, lower batch size, or
+  smaller context window.
+
+## Development
+
 Run the automated tests from the project root with:
 
 ```bash
@@ -219,6 +262,16 @@ chunk handling, and chunk IDs). Fakes stand in for Ollama, Chroma, and the
 keyboard, and stores load from temporary files, so your real stores aren't
 touched. Retrieval is tested separately from generation so retrieval quality
 can be evaluated without invoking the LLM.
+
+No formatter or linter command is configured yet. If one is added later,
+document the command here and include it in the development workflow.
+
+To add another document type, add a loader to `LOADERS` in `src/ingest.py`, add
+any needed package to `requirements.txt`, and cover file discovery/loading with
+tests. To use another Ollama model, pull it with `ollama pull <model>` and set
+it in a store's `store.toml`, with `python -m src.util`, or for one run through
+a shell variable. Changing an embedding model requires rebuilding that store's
+vector index.
 
 ## Notes & findings
 
