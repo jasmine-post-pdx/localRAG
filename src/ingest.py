@@ -64,8 +64,9 @@ def load_documents(data_path):
         pages also have a zero-based ``metadata["page"]``.
 
     Raises:
-        RuntimeError: If the data directory doesn't exist or contains no
-            supported files.
+        RuntimeError: If the data directory doesn't exist, contains no
+            supported files, or a file can't be read (e.g. a corrupt or
+            password-protected PDF).
     """
     if not Path(data_path).is_dir():
         raise RuntimeError(
@@ -81,7 +82,20 @@ def load_documents(data_path):
         )
     documents = []
     for path in files:
-        documents.extend(LOADERS[path.suffix.lower()](str(path)).load())
+        try:
+            loaded = LOADERS[path.suffix.lower()](str(path)).load()
+        except Exception as error:
+            raise RuntimeError(
+                f"Couldn't read {path}: {error}\n"
+                "Fix or remove the file and ingest again."
+            ) from None
+        if not any(doc.page_content.strip() for doc in loaded):
+            console.print(
+                f"{path} contains no readable text (a scanned or image-only "
+                "PDF?). It will contribute nothing to the index.",
+                style="warning",
+            )
+        documents.extend(loaded)
     console.print(
         f"Loaded {len(documents)} document(s) from {len(files)} file(s) in {data_path}",
         style="info",
