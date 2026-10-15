@@ -12,7 +12,13 @@ from langchain_core.vectorstores import InMemoryVectorStore
 from ollama import ResponseError
 
 from src.config import QuerySettings
-from src.generate import check_chat_model, create_rag_chain
+from src.generate import (
+    check_chat_model,
+    create_rag_chain,
+    format_docs,
+    format_sources,
+    source_label,
+)
 
 PROMPT = "Context: {context}\nQuestion: {question}\n"
 OLLAMA_HOST = "http://ollama:11434"
@@ -24,7 +30,10 @@ def vector_store():
     store = InMemoryVectorStore(DeterministicFakeEmbedding(size=8))
     store.add_documents([
         Document(page_content="Refunds are available within 30 days.", metadata={"source": "a.txt"}),
-        Document(page_content="Shipping takes 5 business days.", metadata={"source": "b.txt"}),
+        Document(
+            page_content="Shipping takes 5 business days.",
+            metadata={"source": "docs/b.pdf", "page": 1},
+        ),
     ])
     return store
 
@@ -50,7 +59,7 @@ def make_chain(vector_store, query_settings=None):
 def test_chat_model_uses_query_settings_and_host(vector_store):
     chain = make_chain(vector_store)
 
-    llm = chain.steps[2]
+    llm = chain.steps[2].steps__["answer"].steps[1]
     assert llm.model == "qwen3:8b"
     assert llm.base_url == OLLAMA_HOST
     assert llm.temperature == 0.2
@@ -60,18 +69,21 @@ def test_chat_model_uses_query_settings_and_host(vector_store):
 def test_retriever_fetches_retrieval_k_chunks(vector_store):
     chain = make_chain(vector_store, QuerySettings("qwen3:8b", 0.0, 8192, 1))
 
-    retriever = chain.steps[0].steps__["context"]
+    retriever = chain.steps[0].steps__["docs"]
     assert retriever.search_type == "similarity"
     assert retriever.search_kwargs == {"k": 1}
 
 
-def test_chain_returns_answer_as_string(vector_store, fake_llm):
+def test_chain_returns_answer_and_retrieved_chunks(vector_store, fake_llm):
     chain = make_chain(vector_store)
 
-    assert chain.invoke("What is the refund policy?") == "Within 30 days."
+    result = chain.invoke("What is the refund policy?")
+
+    assert result["answer"] == "Within 30 days."
+    assert {doc.metadata["source"] for doc in result["docs"]} == {"a.txt", "docs/b.pdf"}
 
 
-def test_prompt_contains_question_and_retrieved_context(vector_store, fake_llm):
+def test_prompt_contains_question_and_numbered_labeled_context(vector_store, fake_llm):
     chain = make_chain(vector_store)
 
     chain.invoke("What is the refund policy?")
@@ -80,6 +92,41 @@ def test_prompt_contains_question_and_retrieved_context(vector_store, fake_llm):
     assert "Question: What is the refund policy?" in prompt
     assert "Refunds are available within 30 days." in prompt
     assert "Shipping takes 5 business days." in prompt
+    assert "[1] " in prompt and "[2] " in prompt
+    assert "a.txt" in prompt
+    assert "b.pdf, page 2" in prompt
+
+
+# --- source_label, format_docs, format_sources --------------------------------
+
+
+def test_source_label_uses_file_name_and_one_based_page():
+    doc = Document("text", metadata={"source": "stores/research/documents/manual.pdf", "page": 2})
+
+    assert source_label(doc) == "manual.pdf, page 3"
+
+
+def test_source_label_omits_page_when_missing():
+    assert source_label(Document("text", metadata={"source": "notes.txt"})) == "notes.txt"
+
+
+def test_format_docs_numbers_chunks_in_order():
+    docs = [
+        Document("First.", metadata={"source": "a.txt"}),
+        Document("Second.", metadata={"source": "b.pdf", "page": 0}),
+    ]
+
+    assert format_docs(docs) == "[1] a.txt\nFirst.\n\n[2] b.pdf, page 1\nSecond."
+
+
+def test_format_sources_deduplicates_and_keeps_retrieval_order():
+    docs = [
+        Document("a", metadata={"source": "manual.pdf", "page": 0}),
+        Document("b", metadata={"source": "notes.txt"}),
+        Document("c", metadata={"source": "manual.pdf", "page": 0}),
+    ]
+
+    assert format_sources(docs) == "manual.pdf, page 1; notes.txt"
 
 
 # --- check_chat_model ---------------------------------------------------------

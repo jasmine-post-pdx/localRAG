@@ -16,7 +16,7 @@ from rich.text import Text
 
 from src import config
 from src.console import console
-from src.generate import check_chat_model, create_rag_chain
+from src.generate import check_chat_model, create_rag_chain, format_sources
 from src.ingest import get_embedding_function, get_vector_store
 from src.manifest import find_mismatches, has_vectors, read_manifest
 
@@ -84,10 +84,12 @@ def build_rag_chain(store, app_settings):
 
 
 def query_rag(chain, question, store):
-    """Sends a question to the RAG chain and prints the answer.
+    """Sends a question to the RAG chain and prints the answer and its sources.
 
     The answer is rendered as Markdown inside a panel, so formatting the LLM
-    uses (bold text, lists) shows as styled text rather than raw symbols.
+    uses (bold text, lists) shows as styled text rather than raw symbols. A
+    sources line follows, listing the documents the retrieved chunks came
+    from, so any citations in the answer can be checked.
 
     Args:
         chain (Runnable): The RAG chain returned by ``build_rag_chain``.
@@ -103,7 +105,7 @@ def query_rag(chain, question, store):
     console.print(f"Question: {question}", style="info")
 
     try:
-        response = chain.invoke(question)
+        result = chain.invoke(question)
     except InvalidArgumentError as error:
         if "dimension" not in str(error):
             raise
@@ -117,9 +119,13 @@ def query_rag(chain, question, store):
         )
         return None
 
-    console.print(Panel(Markdown(response), title="Response", border_style="green"))
+    answer = result["answer"]
+    console.print(Panel(Markdown(answer), title="Response", border_style="green"))
+    sources = format_sources(result["docs"])
+    if sources:
+        console.print(f"Sources: {sources}", style="info")
 
-    return response
+    return answer
 
 
 def switch_store(name, current, app_settings):

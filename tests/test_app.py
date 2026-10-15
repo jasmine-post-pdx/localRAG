@@ -7,6 +7,7 @@ import json
 
 import pytest
 from chromadb.errors import InvalidArgumentError
+from langchain_core.documents import Document
 from langchain_core.runnables import RunnableLambda
 
 from src import app, config
@@ -40,8 +41,8 @@ def store(stores):
     return config.load_store("research")
 
 
-def chain_answering(answer):
-    return RunnableLambda(lambda question: answer)
+def chain_answering(answer, docs=None):
+    return RunnableLambda(lambda question: {"answer": answer, "docs": docs or []})
 
 
 def chain_raising(error):
@@ -99,6 +100,23 @@ def test_query_rag_returns_and_prints_answer(store, capsys):
 
     assert answer == "Within 30 days."
     assert "Within 30 days." in capsys.readouterr().out
+
+
+def test_query_rag_prints_sources_of_retrieved_chunks(store, capsys):
+    docs = [
+        Document("Within 30 days.", metadata={"source": "stores/research/documents/policy.pdf", "page": 1}),
+        Document("More text.", metadata={"source": "stores/research/documents/faq.txt"}),
+    ]
+
+    query_rag(chain_answering("Within 30 days.", docs), "Refunds?", store)
+
+    assert "Sources: policy.pdf, page 2; faq.txt" in capsys.readouterr().out
+
+
+def test_query_rag_omits_sources_line_when_nothing_retrieved(store, capsys):
+    query_rag(chain_answering("Within 30 days."), "Refunds?", store)
+
+    assert "Sources:" not in capsys.readouterr().out
 
 
 def test_wrong_embedding_dimension_is_reported(store, capsys):
