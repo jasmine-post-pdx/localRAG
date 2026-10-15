@@ -16,7 +16,7 @@ from rich.text import Text
 
 from src import config
 from src.console import console
-from src.generate import create_rag_chain
+from src.generate import check_chat_model, create_rag_chain
 from src.ingest import get_embedding_function, get_vector_store
 from src.manifest import find_mismatches, has_vectors, read_manifest
 
@@ -67,10 +67,11 @@ def build_rag_chain(store, app_settings):
 
     Raises:
         RuntimeError: If the store's vectors were built with a different
-            embedding model.
+            embedding model, or the chat model isn't available.
     """
     console.print(f"Data store: {store.name} ({store.config_path})", style="info")
     check_store_ready(store)
+    check_chat_model(store.query.llm_model, app_settings.ollama_host)
 
     # Use the exact same embedding model used during indexing.
     embedding_function = get_embedding_function(

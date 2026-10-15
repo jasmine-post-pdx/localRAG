@@ -243,5 +243,5 @@ projects.
 - [x] Move paths, models, chunk settings, and retrieval settings into real
   configuration.
 - [ ] Format retrieved context explicitly and return source/page citations.
-- [ ] Add clear errors for missing documents, empty indexes, unavailable
+- [x] Add clear errors for missing documents, empty indexes, unavailable
   Ollama, missing models, and PDF extraction failures.

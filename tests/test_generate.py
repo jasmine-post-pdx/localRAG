@@ -9,8 +9,10 @@ from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableLambda
 from langchain_core.vectorstores import InMemoryVectorStore
 
+from ollama import ResponseError
+
 from src.config import QuerySettings
-from src.generate import create_rag_chain
+from src.generate import check_chat_model, create_rag_chain
 
 PROMPT = "Context: {context}\nQuestion: {question}\n"
 OLLAMA_HOST = "http://ollama:11434"
@@ -78,3 +80,37 @@ def test_prompt_contains_question_and_retrieved_context(vector_store, fake_llm):
     assert "Question: What is the refund policy?" in prompt
     assert "Refunds are available within 30 days." in prompt
     assert "Shipping takes 5 business days." in prompt
+
+
+# --- check_chat_model ---------------------------------------------------------
+
+def fake_client(monkeypatch, show):
+    """Replaces the Ollama client with one whose show() behaves as given."""
+    monkeypatch.setattr(
+        "src.generate.Client",
+        lambda host: type("FakeClient", (), {"show": staticmethod(show)})(),
+    )
+
+
+def test_check_chat_model_passes_when_model_is_pulled(monkeypatch):
+    fake_client(monkeypatch, lambda model: None)
+
+    check_chat_model("qwen3:8b", OLLAMA_HOST)
+
+
+def test_check_chat_model_reports_unreachable_server(monkeypatch):
+    def show(model):
+        raise ConnectionError("refused")
+
+    fake_client(monkeypatch, show)
+    with pytest.raises(RuntimeError, match="Can't reach Ollama"):
+        check_chat_model("qwen3:8b", OLLAMA_HOST)
+
+
+def test_check_chat_model_reports_missing_model(monkeypatch):
+    def show(model):
+        raise ResponseError("model 'qwen3:8b' not found")
+
+    fake_client(monkeypatch, show)
+    with pytest.raises(RuntimeError, match="Try `ollama pull qwen3:8b`"):
+        check_chat_model("qwen3:8b", OLLAMA_HOST)

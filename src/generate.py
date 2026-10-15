@@ -8,8 +8,39 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from langchain_ollama import ChatOllama
+from ollama import Client, ResponseError
 
 from src.console import console
+
+
+def check_chat_model(llm_model, ollama_host):
+    """Verifies that Ollama is reachable and the chat model is available.
+
+    Asks the server for the model's details, so a missing model or a stopped
+    server surfaces before the user asks a question, rather than as a raw
+    error partway through the first answer.
+
+    Args:
+        llm_model (str): The chat model to check, typically a store's
+            ``query.llm_model``.
+        ollama_host (str): Address of the Ollama server.
+
+    Raises:
+        RuntimeError: If the Ollama server can't be reached or the model
+            isn't pulled.
+    """
+    try:
+        Client(host=ollama_host).show(llm_model)
+    except ConnectionError:
+        raise RuntimeError(
+            f"Can't reach Ollama at {ollama_host}.\n"
+            "Start it with `ollama serve` (or open the Ollama app) and run this again."
+        ) from None
+    except ResponseError as error:
+        raise RuntimeError(
+            f"Ollama can't use model {llm_model!r}: {error.error}.\n"
+            f"Try `ollama pull {llm_model}`."
+        ) from None
 
 
 def create_rag_chain(vector_store, query_settings, prompt_template, ollama_host):

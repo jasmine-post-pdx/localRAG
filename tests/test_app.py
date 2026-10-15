@@ -78,6 +78,7 @@ def test_store_built_with_other_model_is_rejected(store):
 # --- build_rag_chain ----------------------------------------------------------
 
 def test_build_rag_chain_wires_store_settings_together(store, monkeypatch):
+    monkeypatch.setattr(app, "check_chat_model", lambda model, host: None)
     monkeypatch.setattr(app, "get_embedding_function", lambda model, host: ("embed", model, host))
     monkeypatch.setattr(app, "get_vector_store", lambda embed, path: ("vectors", embed, path))
     monkeypatch.setattr(app, "create_rag_chain", lambda *args: args)
