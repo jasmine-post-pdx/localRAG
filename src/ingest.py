@@ -131,6 +131,16 @@ def split_documents(documents, chunk_size, chunk_overlap):
     console.print(f"Split into {len(all_splits)} chunks", style="info")
     return all_splits
 
+
+def require_usable_chunks(chunks, data_path):
+    """Fails when loaded documents produce no text chunks that can be indexed."""
+    if not any(chunk.page_content.strip() for chunk in chunks):
+        raise RuntimeError(
+            f"No readable text chunks were created from documents in {data_path}.\n"
+            "Check for empty files or scanned/image-only PDFs, then ingest again."
+        )
+
+
 def get_embedding_function(model_name, ollama_host):
     """Creates the embedding model used to vectorize document chunks.
 
@@ -374,6 +384,11 @@ def ingest_store(store, app_settings):
         console.print(Panel(str(error), title="Error", border_style="red"))
         raise SystemExit(1) from None
     chunks = split_documents(documents, store.ingest.chunk_size, store.ingest.chunk_overlap)
+    try:
+        require_usable_chunks(chunks, store.documents_path)
+    except RuntimeError as error:
+        console.print(Panel(str(error), title="Error", border_style="red"))
+        raise SystemExit(1) from None
     console.rule("Indexing")
     vector_store = index_documents(
         chunks, embedding_function, store.vectorstore_path, store.ingest.embedding_batch_size,

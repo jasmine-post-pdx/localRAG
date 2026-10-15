@@ -13,6 +13,7 @@ from ollama import ResponseError
 
 from src.config import QuerySettings
 from src.generate import (
+    NoRetrievedDocumentsError,
     check_chat_model,
     create_rag_chain,
     format_docs,
@@ -59,7 +60,7 @@ def make_chain(vector_store, query_settings=None):
 def test_chat_model_uses_query_settings_and_host(vector_store):
     chain = make_chain(vector_store)
 
-    llm = chain.steps[2].steps__["answer"].steps[1]
+    llm = chain.steps[3].steps__["answer"].steps[1]
     assert llm.model == "qwen3:8b"
     assert llm.base_url == OLLAMA_HOST
     assert llm.temperature == 0.2
@@ -87,6 +88,16 @@ def test_prompt_contains_question_and_numbered_labeled_context(vector_store, fak
     assert "[1] " in prompt and "[2] " in prompt
     assert "a.txt" in prompt
     assert "b.pdf, page 2" in prompt
+
+
+def test_chain_rejects_empty_retrieval_without_calling_llm(fake_llm):
+    vector_store = InMemoryVectorStore(DeterministicFakeEmbedding(size=8))
+    chain = make_chain(vector_store)
+
+    with pytest.raises(NoRetrievedDocumentsError, match="No relevant chunks"):
+        chain.invoke("What is the refund policy?")
+
+    assert fake_llm == []
 
 
 # --- source_label, format_docs, format_sources --------------------------------

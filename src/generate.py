@@ -11,12 +11,16 @@ from pathlib import Path
 
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import RunnablePassthrough
+from langchain_core.runnables import RunnableLambda, RunnablePassthrough
 from langchain_ollama import ChatOllama
 from ollama import Client, ResponseError
 
 from src.console import console
 from src.retrieve import create_retriever
+
+
+class NoRetrievedDocumentsError(RuntimeError):
+    """Raised when retrieval finds no chunks to ground an answer."""
 
 
 def check_chat_model(llm_model, ollama_host):
@@ -107,14 +111,23 @@ def format_sources(docs):
     return "; ".join(dict.fromkeys(source_label(doc) for doc in docs))
 
 
+def require_retrieved_docs(inputs):
+    """Stops the chain before generation when retrieval returns no context."""
+    if not inputs["docs"]:
+        raise NoRetrievedDocumentsError(
+            "No relevant chunks were retrieved for this question."
+        )
+    return inputs
+
+
 def create_rag_chain(vector_store, query_settings, prompt_template, ollama_host):
     """Creates a retrieval-augmented generation chain backed by Ollama.
 
     The chain retrieves the ``query_settings.retrieval_k`` most similar
-    documents from the vector store, formats them with ``format_docs`` into
-    ``prompt_template`` alongside the user's question, sends the prompt to
-    the Ollama chat model at ``ollama_host``, and parses the response into a
-    plain string.
+    documents from the vector store, refuses to answer if none are found,
+    formats them with ``format_docs`` into ``prompt_template`` alongside the
+    user's question, sends the prompt to the Ollama chat model at
+    ``ollama_host``, and parses the response into a plain string.
 
     Args:
         vector_store: A LangChain vector store that supports
@@ -162,6 +175,7 @@ def create_rag_chain(vector_store, query_settings, prompt_template, ollama_host)
     # whole chain so the answer and its sources can be returned together.
     rag_chain = (
         {"docs": retriever, "question": RunnablePassthrough()}
+        | RunnableLambda(require_retrieved_docs)
         | RunnablePassthrough.assign(context=lambda inputs: format_docs(inputs["docs"]))
         | {
             "answer": prompt | llm | StrOutputParser(),
