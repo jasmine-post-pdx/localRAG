@@ -323,7 +323,7 @@ The following are proposed next steps. They will be implemented to the extent
 that they support this project's learning goals. Some may be deferred to future
 projects.
 
-- [ ] Explore the existing codebase to understand component interactions and
+- [x] Explore the existing codebase to understand component interactions and
   assess how minor changes affect overall functionality.
 - [x] Prevent duplicate ingestion with deterministic chunk IDs or a documented
   rebuild/update workflow.
@@ -331,8 +331,6 @@ projects.
 - [x] Implement an interactive CLI rather than hard-coded sample questions.
 - [x] Turn the placeholder tests into unit and integration tests and add a
   test runner.
-- [ ] Add a small evaluation set with expected source passages and measure
-  retrieval recall before tuning chunk size, overlap, or `k`.
 - [x] Move paths, models, chunk settings, and retrieval settings into real
   configuration.
 - [x] Format retrieved context explicitly and return source/page citations.
