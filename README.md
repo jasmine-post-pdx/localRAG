@@ -1,7 +1,10 @@
 # RAG Sandbox — Learning & Experimentation Project
 
-> Status: Active learning sandbox and a public demonstration of my transition
-> from software test engineering into AI engineering.
+> Status: While there are still opportunities for improvement, I consider this project complete. I went well beyond the original tutorial, expanding both the scope and complexity of the implementation beyond what I initially anticipated.
+>
+> Throughout development, I encountered areas where AI-generated code introduced duplication or lacked the polish I would expect in production software. I made a deliberate decision to prioritize the project's primary objective: developing hands-on experience with RAG systems and AI/LLM engineering, rather than spending additional time refining every implementation detail. In a production-focused project, code quality, maintainability, and eliminating unnecessary duplication would be a higher priority.
+>
+> The result is a significantly expanded learning project that deepened my understanding of RAG architecture, implementation trade-offs, and AI/LLM engineering practices. The experience has provided a strong foundation for my next project, where I intend to apply these lessons with a greater emphasis on production-level quality and engineering standards.
 
 ## Why this exists
 
