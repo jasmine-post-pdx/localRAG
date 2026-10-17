@@ -7,6 +7,7 @@ import json
 
 import pytest
 from chromadb.errors import InvalidArgumentError
+from langchain_core.documents import Document
 from langchain_core.runnables import RunnableLambda
 
 from src import app, config
@@ -14,6 +15,7 @@ from src.app import (
     DEFAULT_QUESTION,
     build_rag_chain,
     check_store_ready,
+    check_vector_store_not_empty,
     main,
     query_rag,
     switch_store,
@@ -40,8 +42,8 @@ def store(stores):
     return config.load_store("research")
 
 
-def chain_answering(answer):
-    return RunnableLambda(lambda question: answer)
+def chain_answering(answer, docs=None):
+    return RunnableLambda(lambda question: {"answer": answer, "docs": docs or []})
 
 
 def chain_raising(error):
@@ -50,12 +52,29 @@ def chain_raising(error):
     return RunnableLambda(fail)
 
 
+class FakeVectorStore:
+    """A minimal vector store double that reports stored chunk IDs."""
+
+    def __init__(self, ids):
+        self.ids = ids
+
+    def get(self, include):
+        assert include == []
+        return {"ids": self.ids}
+
+
 # --- check_store_ready --------------------------------------------------------
 
-def test_empty_store_warns_nothing_ingested(store, capsys):
-    check_store_ready(store)
+def test_store_without_vectors_is_rejected(store):
+    with pytest.raises(RuntimeError, match="nothing has been ingested yet"):
+        check_store_ready(store)
 
-    assert "Nothing has been ingested into research yet" in capsys.readouterr().out
+
+def test_manifest_with_no_chunks_is_rejected(store):
+    write_manifest(store, chunk_count=0)
+
+    with pytest.raises(RuntimeError, match="no indexed chunks"):
+        check_store_ready(store)
 
 
 def test_store_built_with_same_model_is_ready(store, capsys):
@@ -75,17 +94,30 @@ def test_store_built_with_other_model_is_rejected(store):
         check_store_ready(store)
 
 
+# --- check_vector_store_not_empty ---------------------------------------------
+
+def test_vector_store_with_chunks_is_ready(store):
+    check_vector_store_not_empty(FakeVectorStore(["chunk-1"]), store)
+
+
+def test_empty_vector_store_is_rejected(store):
+    with pytest.raises(RuntimeError, match="vector store is empty"):
+        check_vector_store_not_empty(FakeVectorStore([]), store)
+
+
 # --- build_rag_chain ----------------------------------------------------------
 
 def test_build_rag_chain_wires_store_settings_together(store, monkeypatch):
+    write_manifest(store, chunk_count=1)
+    monkeypatch.setattr(app, "check_chat_model", lambda model, host: None)
     monkeypatch.setattr(app, "get_embedding_function", lambda model, host: ("embed", model, host))
-    monkeypatch.setattr(app, "get_vector_store", lambda embed, path: ("vectors", embed, path))
+    vector_store = FakeVectorStore(["chunk-1"])
+    monkeypatch.setattr(app, "get_vector_store", lambda embed, path: vector_store)
     monkeypatch.setattr(app, "create_rag_chain", lambda *args: args)
 
-    vector_store, query, prompt, host = build_rag_chain(store, APP_SETTINGS)
+    result_vector_store, query, prompt, host = build_rag_chain(store, APP_SETTINGS)
 
-    embed = ("embed", "nomic-embed-text", "http://ollama:11434")
-    assert vector_store == ("vectors", embed, store.vectorstore_path)
+    assert result_vector_store is vector_store
     assert query == store.query
     assert prompt == store.prompt_template
     assert host == "http://ollama:11434"
@@ -94,10 +126,31 @@ def test_build_rag_chain_wires_store_settings_together(store, monkeypatch):
 # --- query_rag ----------------------------------------------------------------
 
 def test_query_rag_returns_and_prints_answer(store, capsys):
-    answer = query_rag(chain_answering("Within 30 days."), "Refunds?", store)
+    docs = [Document("Within 30 days.", metadata={"source": "policy.txt"})]
+    answer = query_rag(chain_answering("Within 30 days.", docs), "Refunds?", store)
 
     assert answer == "Within 30 days."
     assert "Within 30 days." in capsys.readouterr().out
+
+
+def test_query_rag_prints_sources_of_retrieved_chunks(store, capsys):
+    docs = [
+        Document("Within 30 days.", metadata={"source": "stores/research/documents/policy.pdf", "page": 1}),
+        Document("More text.", metadata={"source": "stores/research/documents/faq.txt"}),
+    ]
+
+    query_rag(chain_answering("Within 30 days.", docs), "Refunds?", store)
+
+    assert "Sources: policy.pdf, page 2; faq.txt" in capsys.readouterr().out
+
+
+def test_query_rag_reports_when_nothing_retrieved(store, capsys):
+    answer = query_rag(chain_answering("Within 30 days."), "Refunds?", store)
+
+    assert answer is None
+    output = capsys.readouterr().out
+    assert "no grounded answer can be produced" in output
+    assert "Within 30 days." not in output
 
 
 def test_wrong_embedding_dimension_is_reported(store, capsys):

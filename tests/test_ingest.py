@@ -3,9 +3,15 @@
 # Tests for src/ingest.py: finding, splitting, and identifying document
 # chunks. Embedding and storage need a running Ollama server and aren't
 # covered here.
+import pytest
 from langchain_core.documents import Document
 
-from src.ingest import assign_chunk_ids, find_document_files, split_documents
+from src.ingest import (
+    assign_chunk_ids,
+    find_document_files,
+    require_usable_chunks,
+    split_documents,
+)
 
 
 def test_find_document_files_returns_supported_files_sorted(tmp_path):
@@ -27,6 +33,13 @@ def test_split_documents_respects_chunk_size_and_keeps_metadata():
     assert len(chunks) > 1
     assert all(len(chunk.page_content) <= 50 for chunk in chunks)
     assert all(chunk.metadata["source"] == "doc.txt" for chunk in chunks)
+
+
+def test_require_usable_chunks_rejects_empty_text(tmp_path):
+    chunks = [Document(page_content="   ", metadata={"source": "scan.pdf"})]
+
+    with pytest.raises(RuntimeError, match="No readable text chunks"):
+        require_usable_chunks(chunks, tmp_path)
 
 
 def test_assign_chunk_ids_counts_per_source_and_page():

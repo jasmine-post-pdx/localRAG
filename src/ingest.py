@@ -62,11 +62,40 @@ def load_documents(data_path):
         list[Document]: The loaded documents, with the text in
         ``page_content`` and the source path in ``metadata["source"]``. PDF
         pages also have a zero-based ``metadata["page"]``.
+
+    Raises:
+        RuntimeError: If the data directory doesn't exist, contains no
+            supported files, or a file can't be read (e.g. a corrupt or
+            password-protected PDF).
     """
-    documents = []
+    if not Path(data_path).is_dir():
+        raise RuntimeError(
+            f"Documents folder {data_path} doesn't exist. "
+            "Create it and add documents to ingest."
+        )
     files = find_document_files(data_path)
+    if not files:
+        supported = ", ".join(sorted(LOADERS))
+        raise RuntimeError(
+            f"No documents found in {data_path}. "
+            f"Add files with one of these extensions: {supported}."
+        )
+    documents = []
     for path in files:
-        documents.extend(LOADERS[path.suffix.lower()](str(path)).load())
+        try:
+            loaded = LOADERS[path.suffix.lower()](str(path)).load()
+        except Exception as error:
+            raise RuntimeError(
+                f"Couldn't read {path}: {error}\n"
+                "Fix or remove the file and ingest again."
+            ) from None
+        if not any(doc.page_content.strip() for doc in loaded):
+            console.print(
+                f"{path} contains no readable text (a scanned or image-only "
+                "PDF?). It will contribute nothing to the index.",
+                style="warning",
+            )
+        documents.extend(loaded)
     console.print(
         f"Loaded {len(documents)} document(s) from {len(files)} file(s) in {data_path}",
         style="info",
@@ -101,6 +130,16 @@ def split_documents(documents, chunk_size, chunk_overlap):
     all_splits = text_splitter.split_documents(documents)
     console.print(f"Split into {len(all_splits)} chunks", style="info")
     return all_splits
+
+
+def require_usable_chunks(chunks, data_path):
+    """Fails when loaded documents produce no text chunks that can be indexed."""
+    if not any(chunk.page_content.strip() for chunk in chunks):
+        raise RuntimeError(
+            f"No readable text chunks were created from documents in {data_path}.\n"
+            "Check for empty files or scanned/image-only PDFs, then ingest again."
+        )
+
 
 def get_embedding_function(model_name, ollama_host):
     """Creates the embedding model used to vectorize document chunks.
@@ -339,8 +378,17 @@ def ingest_store(store, app_settings):
     )
     check_ollama(embedding_function)
     console.rule("Loading documents")
-    documents = load_documents(store.documents_path)
+    try:
+        documents = load_documents(store.documents_path)
+    except RuntimeError as error:
+        console.print(Panel(str(error), title="Error", border_style="red"))
+        raise SystemExit(1) from None
     chunks = split_documents(documents, store.ingest.chunk_size, store.ingest.chunk_overlap)
+    try:
+        require_usable_chunks(chunks, store.documents_path)
+    except RuntimeError as error:
+        console.print(Panel(str(error), title="Error", border_style="red"))
+        raise SystemExit(1) from None
     console.rule("Indexing")
     vector_store = index_documents(
         chunks, embedding_function, store.vectorstore_path, store.ingest.embedding_batch_size,

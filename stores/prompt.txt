@@ -1,4 +1,6 @@
-Answer the question based ONLY on the following context:
+Answer the question based ONLY on the following context. Context chunks are
+numbered like [1]; cite the chunks each part of your answer uses with their
+numbers.
 
 {context}
 

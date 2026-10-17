@@ -27,10 +27,11 @@ for learning the end-to-end flow quickly. I reorganized that implementation
 into a more conventional application structure:
 
 - `src/ingest.py` owns document loading, chunking, embedding, and persistence.
-- `src/retrieve.py` is reserved for standalone retrieval behavior as that layer
-  develops.
+- `src/retrieve.py` owns standalone retrieval behavior for querying indexed
+  chunks without invoking the LLM.
 - `src/generate.py` builds the retrieval and generation chain.
-- `src/app.py` is the application entry point.
+- `src/app.py` is the application entry point, including store readiness checks
+  and the interactive question loop.
 - `src/config.py` loads every tunable setting (models, paths, chunking,
   retrieval) into typed settings objects, from a data store's config and the
   environment files. The entry points pass those objects down, so the other
@@ -105,7 +106,7 @@ stores/
     store.toml      # this store's settings
     prompt.txt      # optional: this store's own prompt template
     documents/
-    vectorstore/    # includes manifest.json, written by ingestion
+    vectorstore/    # manifest.json is created after successful ingestion
 ```
 
 Settings come in two kinds:
@@ -118,8 +119,13 @@ Settings come in two kinds:
   taken from the first of: your shell; `.env`, your personal overrides,
   ignored by Git; and `.env.default`, the committed defaults.
 
-The app runs with no extra setup, using the `default` store. Manage stores
-with `src.stores`:
+To create personal machine-wide overrides, copy `.env.example` to `.env` and
+uncomment the values you want to change. Do not put real secrets in `.env`;
+the current app does not need any.
+
+Commands use the `default` store unless you choose another one. Asking
+questions still requires readable documents to be ingested first. Manage
+stores with `src.stores`:
 
 ```bash
 python -m src.stores                      # list stores, their models, and what's ingested
@@ -131,12 +137,13 @@ python -m src.stores use research         # make it the default (saved in .env)
 
 `create` writes every ingest and query setting into the new store's
 `store.toml`, so later changes to `stores/defaults.toml` can't silently
-change it. Every other command takes `--store <name>` to choose a store for
-one run; without it, they use the default store (`RAG_STORE`):
+change it. The runtime entry points take `--store <name>` to choose a store
+for one run; without it, they use the default store (`RAG_STORE`):
 
 ```bash
 python -m src.ingest --store research
 python -m src.app --store research
+python -m src.util --store research
 ```
 
 While asking questions in `src.app`, type `/use <name>` to switch to another
@@ -147,12 +154,13 @@ one, otherwise `stores/prompt.txt`. A prompt must contain the placeholders
 `{context}` (the retrieved chunks) and `{question}`, and no others; write a
 literal brace as `{{` or `}}`.
 
-Ingestion records a store's `embedding_model`, `chunk_size`, and
-`chunk_overlap` in `manifest.json` inside its vector store. If you change
-one of them afterwards, ingestion refuses to add to the store and the app
-refuses to search it with a different embedding model, explaining what
-changed. To rebuild with the new settings, delete the contents of the
-store's vector store and ingest again.
+Ingestion records a store's `embedding_model`, `chunk_size`, `chunk_overlap`,
+and indexed chunk count in `manifest.json` inside its vector store. If you
+change one of the fixed settings afterwards, ingestion refuses to add to the
+store and the app refuses to search it with a different embedding model,
+explaining what changed. The app also refuses to answer from a store with no
+indexed chunks. To rebuild with new settings or source content, delete the
+contents of the store's vector store and ingest again.
 
 To switch models without editing files, run the model picker. It shows a
 store's embedding and chat models next to the models installed in Ollama,
@@ -195,9 +203,50 @@ topics of the documents.
 Each chunk is stored under a deterministic ID (`<source>:<page>:<chunk_index>`),
 so re-running ingestion only embeds chunks from files that are new since the
 last run. Chunks already in the store are not updated, so after editing or
-removing a file, delete the contents of `stores/default/vectorstore/` and run `src.ingest`
-again to rebuild.
+removing a file, delete the contents of the active store's `vectorstore/`
+folder and run `src.ingest` again to rebuild.
 Source documents and vector-store data are intentionally excluded from Git.
+Data stores other than `default` are also local-only by default, including
+their `store.toml` and prompt files, unless the Git ignore rules are changed.
+
+## Data And Privacy
+
+Documents live under the active store's `documents/` folder. Chroma writes the
+local index under that store's `vectorstore/` folder, including `manifest.json`
+after successful ingestion. The app does not write question/answer logs; answers
+and retrieved sources are printed to the terminal.
+
+Embedding and chat requests are sent to the configured Ollama server
+(`OLLAMA_HOST`, default `http://localhost:11434`). The app does not call hosted
+LLM APIs by default. If you point `OLLAMA_HOST` at another machine, document
+chunks and questions are sent to that Ollama server.
+
+To clear or rebuild an index, delete the contents of the active store's
+`vectorstore/` folder and run `python -m src.ingest` again. To remove local
+source documents too, delete them from the store's `documents/` folder.
+
+## Limitations And Troubleshooting
+
+- Supported source files are `.pdf`, `.txt`, and `.md`. Other file types are
+  ignored during ingestion.
+- Scanned or image-only PDFs do not produce text chunks unless OCR has already
+  been run outside this app.
+- Ollama must be running, and the configured embedding and chat models must be
+  pulled locally. The app reports startup errors with the relevant
+  `ollama serve` or `ollama pull <model>` command.
+- Empty stores and empty indexes cannot answer questions. Add readable files to
+  the active store's `documents/` folder and run `python -m src.ingest`.
+- Edited or deleted source files are not automatically reflected in Chroma.
+  Rebuild the store's `vectorstore/` after changing source content.
+- Changing `embedding_model`, `chunk_size`, or `chunk_overlap` after ingestion
+  requires rebuilding the vector store. Query-only settings such as
+  `retrieval_k`, `llm_model`, temperature, and context window can be changed
+  without re-ingesting.
+- Local models can use significant CPU, memory, and disk. If ingestion or
+  generation is slow or unstable, try a smaller model, lower batch size, or
+  smaller context window.
+
+## Development
 
 Run the automated tests from the project root with:
 
@@ -208,10 +257,21 @@ pytest
 They cover loading settings and prompts, the manifest, creating and
 selecting stores, saving model choices, the app's question loop and store
 switching, and generation's prompt construction and chain wiring, plus the
-parts of ingestion that don't need Ollama (finding files, splitting, and
-chunk IDs). Fakes stand in for Ollama, Chroma, and the keyboard, and stores
-load from temporary files, so your real stores aren't touched. Only the
-retrieval test file is still a placeholder, matching `src/retrieve.py`.
+parts of ingestion that don't need Ollama (finding files, splitting, empty
+chunk handling, and chunk IDs). Fakes stand in for Ollama, Chroma, and the
+keyboard, and stores load from temporary files, so your real stores aren't
+touched. Retrieval is tested separately from generation so retrieval quality
+can be evaluated without invoking the LLM.
+
+No formatter or linter command is configured yet. If one is added later,
+document the command here and include it in the development workflow.
+
+To add another document type, add a loader to `LOADERS` in `src/ingest.py`, add
+any needed package to `requirements.txt`, and cover file discovery/loading with
+tests. To use another Ollama model, pull it with `ollama pull <model>` and set
+it in a store's `store.toml`, with `python -m src.util`, or for one run through
+a shell variable. Changing an embedding model requires rebuilding that store's
+vector index.
 
 ## Notes & findings
 
@@ -220,9 +280,42 @@ retrieval test file is still a placeholder, matching `src/retrieve.py`.
   rebuild/update strategy are required.
 - **2026-09-30:** "Runs locally" does not mean "has no dependencies." Both
   ingestion and querying require a running Ollama service and locally installed
-  models; the application does not yet provide user-friendly checks for either.
+  models. The original prototype did not provide user-friendly checks for
+  either; this project now checks Ollama/model availability before indexing or
+  answering.
 - **2026-09-30:** Even when using only a short PDF as input, the LLM consumes
   significant CPU resources.
+- **2026-10-02:** Deterministic chunk IDs prevent duplicate ingestion, but they
+  also mean edited or deleted source files are not automatically reflected in
+  Chroma. A rebuild workflow is still required when source content changes.
+- **2026-10-02:** Supporting `.txt` and `.md` files exposed encoding concerns
+  that PDFs did not, including the need to pin `chardet<6` for LangChain
+  `TextLoader` compatibility.
+- **2026-10-06:** Better terminal output is not just cosmetic. Rich panels,
+  section headers, and clearer status messages make local AI failures easier to
+  understand while experimenting.
+- **2026-10-07:** Per-store configuration became necessary once multiple
+  document collections and model choices existed. Machine-wide settings and
+  store-specific settings need different override rules so one store does not
+  accidentally affect another.
+- **2026-10-07:** Vector stores are tightly coupled to their embedding model and
+  chunking settings. Recording a manifest helps catch incompatible changes
+  before Chroma or retrieval fails in less obvious ways.
+- **2026-10-07:** Ollama model names need normalization because `model` and
+  `model:latest` can refer to the same installed model. Without that, checks can
+  report false setting mismatches.
+- **2026-10-14:** PDF loading can fail in several ways: missing folders, no
+  supported files, corrupt or password-protected PDFs, and scanned PDFs with no
+  extractable text all need different user guidance.
+- **2026-10-14:** Generated citations are not enough on their own. Returning and
+  printing the retrieved source chunks gives a deterministic way to audit what
+  context the answer used.
+- **2026-10-15:** Separating retrieval from generation makes retrieval quality
+  testable without invoking the LLM, which is a useful step toward recall
+  evaluation and tuning.
+- **2026-10-15:** Fakes and temporary stores make most of a local RAG app
+  testable without touching Ollama, Chroma persistence, keyboard input, or real
+  documents. Integration and evaluation tests are still a separate layer.
 
 ## What's next
 
@@ -230,7 +323,7 @@ The following are proposed next steps. They will be implemented to the extent
 that they support this project's learning goals. Some may be deferred to future
 projects.
 
-- [ ] Explore the existing codebase to understand component interactions and
+- [x] Explore the existing codebase to understand component interactions and
   assess how minor changes affect overall functionality.
 - [x] Prevent duplicate ingestion with deterministic chunk IDs or a documented
   rebuild/update workflow.
@@ -238,10 +331,8 @@ projects.
 - [x] Implement an interactive CLI rather than hard-coded sample questions.
 - [x] Turn the placeholder tests into unit and integration tests and add a
   test runner.
-- [ ] Add a small evaluation set with expected source passages and measure
-  retrieval recall before tuning chunk size, overlap, or `k`.
 - [x] Move paths, models, chunk settings, and retrieval settings into real
   configuration.
-- [ ] Format retrieved context explicitly and return source/page citations.
-- [ ] Add clear errors for missing documents, empty indexes, unavailable
+- [x] Format retrieved context explicitly and return source/page citations.
+- [x] Add clear errors for missing documents, empty indexes, unavailable
   Ollama, missing models, and PDF extraction failures.
